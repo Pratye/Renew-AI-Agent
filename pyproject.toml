@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "renewable-energy-consultant"
+version = "0.1.0"
+description = "A renewable energy consultant application with real-time data integration and dashboard capabilities"
+authors = ["Your Name <your.email@example.com>"]
+packages = [{include = "mcp_server"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+quart = "0.18.4"
+hypercorn = "0.14.3"
+pyjwt = "2.8.0"
+python-dotenv = "1.0.0"
+requests = "2.31.0"
+pandas = "2.1.0"
+numpy = "1.25.2"
+aiohttp = "3.9.1"
+python-dateutil = "2.8.2"
+plotly = "5.17.0"
+openai = "1.12.0"
+pymongo = "4.6.1"
+blinker = "<1.6"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api" 

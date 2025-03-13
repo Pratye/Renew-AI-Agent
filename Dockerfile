@@ -6,28 +6,31 @@ WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements files
-COPY requirements.txt .
-COPY mcp_server/requirements.txt mcp_server/requirements.txt
+# Install Poetry
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="/root/.local/bin:$PATH"
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir -r mcp_server/requirements.txt
+# Configure Poetry
+RUN poetry config virtualenvs.create false
+
+# Copy Poetry files
+COPY pyproject.toml poetry.lock ./
+
+# Install dependencies
+RUN poetry install --no-interaction --no-ansi --no-root
 
 # Copy application code
 COPY . .
 
+# Set environment variables
+ENV QUART_APP=mcp_server.server:app
+ENV QUART_ENV=production
+
 # Expose port
 EXPOSE 5001
 
-# Set environment variables
-ENV FLASK_APP=mcp_server/server.py
-ENV QUART_APP=mcp_server/server.py
-ENV QUART_ENV=production
-ENV PYTHONPATH=/app
-
-# Run the application with hypercorn
-CMD ["hypercorn", "mcp_server.server:app", "--bind", "0.0.0.0:5001", "--workers", "1"] 
+# Run the application with Hypercorn
+CMD ["poetry", "run", "hypercorn", "--bind", "0.0.0.0:5001", "mcp_server.server:app"] 
