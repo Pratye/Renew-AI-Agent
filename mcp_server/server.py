@@ -1,12 +1,13 @@
 from quart import Quart, request, jsonify
+from dotenv import load_dotenv
 import jwt
 import uuid
 import datetime
 import os
 from functools import wraps
-from data_sources import DataAggregator
-from dashboard_templates import DashboardFactory, process_dashboard_data
-from user_management import UserManager
+from mcp_server.data_sources import DataAggregator
+from mcp_server.dashboard_factory import DashboardFactory
+from mcp_server.user_management import UserManager
 import logging
 from dash import Dash, html, dcc
 import dash_bootstrap_components as dbc

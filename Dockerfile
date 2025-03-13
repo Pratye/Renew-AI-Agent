@@ -28,6 +28,7 @@ COPY . .
 # Set environment variables
 ENV QUART_APP=mcp_server.server:app
 ENV QUART_ENV=production
+ENV PYTHONPATH=/app
 
 # Expose port
 EXPOSE 5001
