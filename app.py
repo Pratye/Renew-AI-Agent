@@ -140,40 +140,78 @@ def chat():
             else:
                 return jsonify({'error': 'All available LLM providers failed'}), 500
         
-        # Check if we need to fetch data from MCP server
-        if mcp_server and any(keyword in user_message.lower() for keyword in ['data', 'statistics', 'numbers', 'report', 'dashboard']):
+        # Check if we should use MCP server
+        # Keywords that indicate dashboard/data visualization requests
+        dashboard_keywords = [
+            'dashboard', 'model', 'create', 'deploy', 'visualization', 'graph',
+            'chart', 'plot', 'data', 'statistics', 'analytics', 'report',
+            'metrics', 'kpi', 'trends', 'analysis'
+        ]
+        
+        # Model type keywords
+        model_types = {
+            'cbg': ['cbg', 'community', 'community-based', 'community based', 'community generation'],
+            'solar_farm': ['solar farm', 'solar panel', 'photovoltaic'],
+            'wind_farm': ['wind farm', 'wind turbine', 'wind power'],
+            'hybrid_plant': ['hybrid', 'mixed', 'multi-source']
+        }
+        
+        should_use_mcp = any(keyword in user_message.lower() for keyword in dashboard_keywords)
+        logging.info(f"MCP server status - Available: {mcp_server is not None}, Should use: {should_use_mcp}")
+        
+        # Determine model type
+        model_type = None
+        message_lower = user_message.lower()
+        for type_name, keywords in model_types.items():
+            if any(keyword in message_lower for keyword in keywords):
+                model_type = type_name
+                break
+        
+        # Try to use MCP server if available and relevant
+        if mcp_server and should_use_mcp:
             try:
+                logging.info("Attempting to use MCP server for data processing")
                 # Fetch relevant data from MCP server
                 mcp_data = mcp_server.fetch_data(user_message)
+                logging.info("Successfully fetched data from MCP server")
                 
                 # Process the data
                 processed_data = data_processor.process(mcp_data)
                 
-                # Generate dashboard if requested
-                if 'dashboard' in user_message.lower():
+                # Create dashboard by default for visualization requests
+                try:
                     dashboard_info = mcp_server.create_dashboard(
-                        title=f"Renewable Energy Dashboard - {datetime.now().strftime('%Y-%m-%d')}",
+                        title=f"Renewable Energy Dashboard - {model_type.upper() if model_type else 'General'} - {datetime.now().strftime('%Y-%m-%d')}",
                         description=f"Dashboard generated based on query: {user_message}",
                         data=processed_data,
+                        layout={"type": model_type} if model_type else None,
                         auto_refresh=True
                     )
-                    response += f"\n\nI've created an interactive dashboard for you: {dashboard_info['url']}"
+                    response += f"\n\nI've created an interactive {model_type.replace('_', ' ').title() if model_type else ''} dashboard for you: {dashboard_info['url']}"
                     if dashboard_info.get('embed_code'):
                         response += f"\nYou can embed this dashboard using the provided code."
+                    logging.info(f"Successfully created dashboard: {dashboard_info.get('url')}")
+                except Exception as e:
+                    logging.error(f"Error creating dashboard: {str(e)}")
+                    response += "\n\nI encountered an error while creating the dashboard, but I can still provide you with the data analysis."
                 
-                # Generate visualization if specifically requested
-                elif 'visualization' in user_message.lower():
-                    visualization_url = data_processor.generate_visualization(processed_data)
-                    response += f"\n\nI've created a visualization based on the data: {visualization_url}"
-                
-                # Generate report if requested
+                # Generate report if specifically requested
                 if 'report' in user_message.lower():
-                    report_url = report_generator.generate_report(processed_data, user_message)
-                    response += f"\n\nI've generated a detailed report for you: {report_url}"
+                    try:
+                        report_url = report_generator.generate_report(processed_data, user_message)
+                        response += f"\n\nI've also generated a detailed report for you: {report_url}"
+                        logging.info(f"Successfully generated report: {report_url}")
+                    except Exception as e:
+                        logging.error(f"Error generating report: {str(e)}")
             
             except Exception as e:
                 logging.error(f"Error processing MCP data: {str(e)}")
                 response += "\n\nI apologize, but I encountered an error while trying to fetch additional data. I've provided the best response I can based on my knowledge."
+        else:
+            if not mcp_server:
+                logging.warning("MCP server is not available")
+            if not should_use_mcp:
+                logging.info("Request does not require MCP server")
         
         # Add AI response to conversation history
         conversation_history.append({
@@ -187,7 +225,8 @@ def chat():
         
         return jsonify({
             'response': response,
-            'session_id': session.get('session_id')
+            'session_id': session.get('session_id'),
+            'used_mcp': bool(mcp_server and should_use_mcp)
         })
     
     except Exception as e:
