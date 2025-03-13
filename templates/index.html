@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Renewable Energy Consultant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo">
+                <i class="fas fa-leaf"></i>
+                <h1>Renewable Energy Consultant</h1>
+            </div>
+            <div class="header-actions">
+                <button id="export-btn" class="btn"><i class="fas fa-download"></i> Export</button>
+                <button id="reset-btn" class="btn"><i class="fas fa-redo"></i> Reset</button>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h2>Topics</h2>
+                </div>
+                <nav class="topics-nav">
+                    <ul>
+                        <li><a href="#" data-topic="solar"><i class="fas fa-sun"></i> Solar Energy</a></li>
+                        <li><a href="#" data-topic="wind"><i class="fas fa-wind"></i> Wind Energy</a></li>
+                        <li><a href="#" data-topic="hydro"><i class="fas fa-water"></i> Hydro Energy</a></li>
+                        <li><a href="#" data-topic="geothermal"><i class="fas fa-fire"></i> Geothermal</a></li>
+                        <li><a href="#" data-topic="biomass"><i class="fas fa-seedling"></i> Biomass</a></li>
+                        <li><a href="#" data-topic="policy"><i class="fas fa-gavel"></i> Policy & Regulations</a></li>
+                        <li><a href="#" data-topic="economics"><i class="fas fa-chart-line"></i> Economics & ROI</a></li>
+                        <li><a href="#" data-topic="implementation"><i class="fas fa-tools"></i> Implementation</a></li>
+                    </ul>
+                </nav>
+                <div class="sidebar-section">
+                    <h3>Recent Reports</h3>
+                    <ul id="recent-reports" class="recent-list">
+                        <!-- Reports will be added dynamically -->
+                    </ul>
+                </div>
+                <div class="sidebar-section">
+                    <h3>Recent Dashboards</h3>
+                    <ul id="recent-dashboards" class="recent-list">
+                        <!-- Dashboards will be added dynamically -->
+                    </ul>
+                </div>
+            </aside>
+
+            <main class="chat-container">
+                <div id="chat-messages" class="chat-messages">
+                    <div class="message assistant">
+                        <div class="message-content">
+                            <p>Hello! I'm your Renewable Energy Consultant. I can provide information on various renewable energy technologies, help with cost analysis, environmental impact assessments, and more. I can also generate reports and dashboards based on data analysis. How can I assist you today?</p>
+                        </div>
+                    </div>
+                    <!-- Messages will be added dynamically -->
+                </div>
+
+                <div class="chat-input-container">
+                    <form id="chat-form">
+                        <div class="input-wrapper">
+                            <textarea id="user-input" placeholder="Ask about renewable energy..." rows="1"></textarea>
+                            <button type="submit" id="send-btn"><i class="fas fa-paper-plane"></i></button>
+                        </div>
+                        <div class="suggestions">
+                            <span class="suggestion-chip" data-text="Tell me about solar energy efficiency">Solar efficiency</span>
+                            <span class="suggestion-chip" data-text="Compare wind and solar energy costs">Compare costs</span>
+                            <span class="suggestion-chip" data-text="Generate a report on renewable energy trends">Energy trends report</span>
+                            <span class="suggestion-chip" data-text="Create a dashboard of global renewable capacity">Global capacity dashboard</span>
+                        </div>
+                    </form>
+                </div>
+            </main>
+
+            <aside class="info-panel" id="info-panel">
+                <div class="panel-header">
+                    <h2>Information</h2>
+                    <button id="close-panel" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="panel-content">
+                    <!-- Dynamic content will be loaded here -->
+                    <div class="placeholder-content">
+                        <p>Select a topic from the sidebar or ask a specific question to see detailed information here.</p>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- Modal for displaying reports and dashboards -->
+        <div id="modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="modal-title">Report Title</h2>
+                    <button id="close-modal" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body" id="modal-body">
+                    <!-- Content will be loaded dynamically -->
+                </div>
+                <div class="modal-footer">
+                    <button id="download-btn" class="btn"><i class="fas fa-download"></i> Download</button>
+                    <button id="share-btn" class="btn"><i class="fas fa-share-alt"></i> Share</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html> 

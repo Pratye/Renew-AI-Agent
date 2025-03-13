@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "5001:5001"
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/
+      - MONGODB_DB=renewable_energy_consultant
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key}
+      - JWT_ACCESS_TOKEN_EXPIRES=604800  # 7 days
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - EIA_API_KEY=${EIA_API_KEY}
+      - SOLARGIS_API_KEY=${SOLARGIS_API_KEY}
+      - WINDEUROPE_API_KEY=${WINDEUROPE_API_KEY}
+    volumes:
+      - .:/app
+    depends_on:
+      - mongodb
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - app-network
+    restart: unless-stopped
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mongodb_data: 
