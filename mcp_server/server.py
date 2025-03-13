@@ -9,8 +9,6 @@ from mcp_server.data_sources import DataAggregator
 from mcp_server.dashboard_factory import DashboardFactory
 from mcp_server.user_management import UserManager
 import logging
-from dash import Dash, html, dcc
-import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from hypercorn.config import Config
 from hypercorn.asyncio import serve
