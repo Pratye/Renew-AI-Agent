@@ -16,6 +16,7 @@ services:
       - FLASK_APP=app.py
       - FLASK_ENV=production
       - EVENTLET_NO_GREENDNS=yes
+      - OPENAI_API_KEY=${OPENAI_API_KEY}  # Add your OpenAI API key here
     depends_on:
       - mongodb
       - mcp-server
