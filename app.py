@@ -22,19 +22,28 @@ app.secret_key = os.urandom(24)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Initialize API clients
-try:
-    claude_api = ClaudeAPI(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    logging.info("Claude API initialized successfully")
-except Exception as e:
-    logging.warning(f"Failed to initialize Claude API: {str(e)}. Continuing without Claude.")
-    claude_api = None
+llm_clients = {}
 
-# Initialize OpenAI/GroQ API
-openai_api = OpenAIAPI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    base_url=os.getenv("OPENAI_BASE_URL"),
-    model=os.getenv("OPENAI_MODEL")
-)
+# Initialize OpenAI/GroQ/Ollama API (primary)
+try:
+    openai_api = OpenAIAPI(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url=os.getenv("OPENAI_BASE_URL"),
+        model=os.getenv("OPENAI_MODEL")
+    )
+    llm_clients['openai'] = openai_api
+    logging.info("OpenAI/Compatible API initialized successfully")
+except Exception as e:
+    logging.error(f"Failed to initialize OpenAI API: {str(e)}")
+
+# Initialize Claude API (optional)
+if os.getenv("ANTHROPIC_API_KEY"):
+    try:
+        claude_api = ClaudeAPI(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        llm_clients['claude'] = claude_api
+        logging.info("Claude API initialized successfully")
+    except Exception as e:
+        logging.warning(f"Failed to initialize Claude API: {str(e)}. Continuing without Claude.")
 
 # Initialize MCP server if credentials are available
 mcp_server = None
@@ -85,6 +94,7 @@ def chat():
         data = request.json
         user_message = data.get('message', '')
         context = data.get('context', 'chat')
+        provider = data.get('provider', 'openai').lower()  # Default to OpenAI if not specified
         
         # Get conversation history from session
         conversation_history = session.get('conversation_history', [])
@@ -96,21 +106,38 @@ def chat():
             'timestamp': datetime.now().isoformat()
         })
         
-        # Generate AI response
-        if context == 'info_panel':
-            response = openai_api.generate_response(
+        # Check if the requested provider is available
+        if provider not in llm_clients:
+            available_providers = list(llm_clients.keys())
+            if not available_providers:
+                return jsonify({'error': 'No LLM providers available'}), 500
+            provider = available_providers[0]
+            logging.warning(f"Requested provider '{provider}' not available. Using {provider} instead.")
+        
+        # Generate AI response using the selected provider
+        try:
+            response = llm_clients[provider].generate_response(
                 SYSTEM_PROMPT,
                 conversation_history,
-                max_tokens=500
+                max_tokens=500 if context == 'info_panel' else 1000
             )
-        else:
-            response = claude_api.generate_response(
-                SYSTEM_PROMPT,
-                conversation_history
-            ) if claude_api else openai_api.generate_response(
-                SYSTEM_PROMPT,
-                conversation_history
-            )
+        except Exception as e:
+            logging.error(f"Error with {provider}: {str(e)}. Trying fallback if available.")
+            # Try fallback to another available provider
+            for fallback_provider, client in llm_clients.items():
+                if fallback_provider != provider:
+                    try:
+                        response = client.generate_response(
+                            SYSTEM_PROMPT,
+                            conversation_history,
+                            max_tokens=500 if context == 'info_panel' else 1000
+                        )
+                        logging.info(f"Successfully used {fallback_provider} as fallback")
+                        break
+                    except Exception as fallback_e:
+                        logging.error(f"Fallback to {fallback_provider} also failed: {str(fallback_e)}")
+            else:
+                return jsonify({'error': 'All available LLM providers failed'}), 500
         
         # Check if we need to fetch data from MCP server
         if mcp_server and any(keyword in user_message.lower() for keyword in ['data', 'statistics', 'numbers', 'report', 'dashboard']):

@@ -16,7 +16,11 @@ services:
       - FLASK_APP=app.py
       - FLASK_ENV=production
       - EVENTLET_NO_GREENDNS=yes
-      - OPENAI_API_KEY=${OPENAI_API_KEY}  # Add your OpenAI API key here
+      # LLM Provider Configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY}  # OpenAI API key
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}  # Optional: For Groq or Ollama
+      - OPENAI_MODEL=${OPENAI_MODEL}  # Optional: Specify model
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}  # Optional: Claude API key
     depends_on:
       - mongodb
       - mcp-server
