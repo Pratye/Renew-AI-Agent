@@ -25,8 +25,9 @@ EXPOSE 5001
 
 # Set environment variables
 ENV FLASK_APP=mcp_server/server.py
-ENV FLASK_ENV=production
+ENV QUART_APP=mcp_server/server.py
+ENV QUART_ENV=production
 ENV PYTHONPATH=/app
 
-# Run the application
-CMD ["python", "-m", "flask", "run", "--host=0.0.0.0", "--port=5001"] 
+# Run the application with hypercorn
+CMD ["hypercorn", "mcp_server.server:app", "--bind", "0.0.0.0:5001", "--workers", "1"] 
