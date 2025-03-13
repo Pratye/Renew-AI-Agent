@@ -47,11 +47,12 @@ if os.getenv("ANTHROPIC_API_KEY"):
 
 # Initialize MCP server if credentials are available
 mcp_server = None
-if os.getenv("MCP_SERVER_URL") and os.getenv("MCP_API_KEY"):
+if os.getenv("MCP_SERVER_URL"):
     try:
         mcp_server = MCPServer(
             server_url=os.getenv("MCP_SERVER_URL"),
-            api_key=os.getenv("MCP_API_KEY")
+            api_key=None,  # Don't use pre-defined key
+            auto_generate_key=True  # Generate new key using client credentials
         )
         logging.info("MCP server initialized successfully")
     except Exception as e:

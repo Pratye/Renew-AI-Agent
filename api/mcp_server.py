@@ -6,22 +6,26 @@ from urllib.parse import urljoin
 import time
 
 class MCPServer:
-    def __init__(self, server_url=None, api_key=None):
+    def __init__(self, server_url=None, api_key=None, auto_generate_key=False):
         """
         Initialize the MCP server client.
         
         Args:
             server_url (str, optional): The URL of the MCP server. Defaults to None.
             api_key (str, optional): The API key for the MCP server. Defaults to None.
+            auto_generate_key (bool, optional): Whether to automatically generate a new key if none exists. Defaults to False.
         """
         self.server_url = server_url or os.getenv("MCP_SERVER_URL")
         if not self.server_url:
             raise ValueError("MCP server URL is required")
         
-        # Try to get API key from environment or generate a new one
+        # API key handling
         self.api_key = api_key or os.getenv("MCP_API_KEY")
-        if not self.api_key:
+        if not self.api_key and auto_generate_key:
+            logging.info("No API key found, attempting to generate one...")
             self.api_key = self._get_api_key()
+        elif not self.api_key:
+            raise ValueError("MCP API key is required. Either provide it directly, set MCP_API_KEY in environment, or set auto_generate_key=True")
         
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
