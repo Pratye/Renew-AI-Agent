@@ -1,28 +1,37 @@
 version: '3.8'
 
 services:
-  app:
-    build: .
+  main-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.main
+    ports:
+      - "5000:5000"
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/
+      - MCP_SERVER_URL=http://mcp-server:5001
+    depends_on:
+      - mongodb
+      - mcp-server
+    volumes:
+      - .:/app
+    networks:
+      - app-network
+
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
     ports:
       - "5001:5001"
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/
-      - MONGODB_DB=renewable_energy_consultant
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key}
-      - JWT_ACCESS_TOKEN_EXPIRES=604800  # 7 days
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
-      - EIA_API_KEY=${EIA_API_KEY}
-      - SOLARGIS_API_KEY=${SOLARGIS_API_KEY}
-      - WINDEUROPE_API_KEY=${WINDEUROPE_API_KEY}
-    volumes:
-      - .:/app
     depends_on:
       - mongodb
+    volumes:
+      - .:/app
     networks:
       - app-network
-    restart: unless-stopped
 
   mongodb:
     image: mongo:latest
@@ -32,7 +41,6 @@ services:
       - mongodb_data:/data/db
     networks:
       - app-network
-    restart: unless-stopped
 
 networks:
   app-network:
