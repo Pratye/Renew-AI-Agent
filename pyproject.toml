@@ -7,6 +7,8 @@ packages = [{include = "mcp_server"}]
 
 [tool.poetry.dependencies]
 python = "^3.9"
+flask = "2.2.2"
+werkzeug = "2.3.7"
 quart = "0.18.4"
 hypercorn = "0.14.3"
 pyjwt = "2.8.0"
