@@ -28,8 +28,8 @@ A comprehensive application for renewable energy analysis and monitoring, featur
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd renewable_energy_consultant
+   git clone https://github.com/Pratye/Renew-AI-Agent.git
+   cd Renew-AI-Agent
    ```
 
 2. Create your environment file:
