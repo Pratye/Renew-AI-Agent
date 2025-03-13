@@ -32,20 +32,20 @@ def generate_api_key():
     return f"mcp_{uuid.uuid4().hex}"
 
 def require_auth(f):
+    """Decorator to require API key authentication"""
     @wraps(f)
     async def decorated(*args, **kwargs):
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({'error': 'No authentication token provided'}), 401
+            return jsonify({'error': 'Missing or invalid Authorization header'}), 401
         
-        token = auth_header.split(' ')[1]
-        try:
-            user = user_manager.verify_token(token)
-            if not user:
-                return jsonify({'error': 'Invalid token'}), 401
-            return await f(user, *args, **kwargs)
-        except ValueError as e:
-            return jsonify({'error': str(e)}), 401
+        api_key = auth_header.split(' ')[1]
+        if api_key not in api_keys:
+            return jsonify({'error': 'Invalid API key'}), 401
+        
+        # Update last used timestamp
+        api_keys[api_key]['last_used'] = datetime.datetime.utcnow()
+        return await f(*args, **kwargs)
     return decorated
 
 @app.route('/api/generate_key', methods=['POST'])
@@ -83,7 +83,99 @@ async def generate_key():
         logging.error(f"Error generating API key: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
-# ... [rest of your existing route handlers with async/await] ...
+@app.route('/api/data/fetch', methods=['POST'])
+@require_auth
+async def fetch_data():
+    """Fetch data based on query parameters"""
+    try:
+        # Get query parameters from request
+        data = await request.get_json()
+        query = data.get('query')
+        data_sources = data.get('data_sources', ['renewable_energy_db', 'web_scraping', 'external_apis'])
+        
+        if not query:
+            return jsonify({'error': 'Query parameter is required'}), 400
+        
+        # Extract date range from query if present
+        # Default to last 30 days if not specified
+        now = datetime.datetime.utcnow()
+        default_start = (now - datetime.timedelta(days=30)).isoformat()
+        default_end = now.isoformat()
+        
+        # Parse query for parameters
+        query_params = {
+            'start_date': default_start,
+            'end_date': default_end,
+            'data_types': [],
+            'location': None
+        }
+        
+        # Fetch comprehensive data using the aggregator
+        result = await data_aggregator.fetch_comprehensive_data({
+            'query': query,
+            'start_date': query_params['start_date'],
+            'end_date': query_params['end_date'],
+            'data_sources': data_sources
+        })
+        
+        if result is None:
+            return jsonify({'error': 'Failed to fetch data from sources'}), 500
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logging.error(f"Error fetching data: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/dashboards/create', methods=['POST'])
+@require_auth
+async def create_dashboard():
+    """Create a new dashboard"""
+    try:
+        data = await request.get_json()
+        required_fields = ['title', 'description', 'data']
+        
+        # Validate required fields
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Get dashboard type from layout
+        dashboard_type = data.get('layout', {}).get('type', 'default')
+        
+        # Process data for dashboard
+        processed_data = process_dashboard_data(data['data'], dashboard_type)
+        if not processed_data:
+            return jsonify({'error': 'Failed to process dashboard data'}), 500
+        
+        # Create dashboard layout
+        layout = DashboardFactory.create_dashboard(dashboard_type, processed_data)
+        
+        # Generate dashboard ID
+        dashboard_id = str(uuid.uuid4())
+        
+        # Store dashboard
+        dashboards[dashboard_id] = {
+            'title': data['title'],
+            'description': data['description'],
+            'data': processed_data,
+            'layout': layout,
+            'settings': data.get('settings', {}),
+            'created_at': datetime.datetime.utcnow().isoformat()
+        }
+        
+        # Generate dashboard URL
+        dashboard_url = f"/dashboards/{dashboard_id}"
+        
+        return jsonify({
+            'dashboard_id': dashboard_id,
+            'dashboard_url': dashboard_url,
+            'embed_code': f'<iframe src="{dashboard_url}" width="100%" height="600px" frameborder="0"></iframe>'
+        })
+        
+    except Exception as e:
+        logging.error(f"Error creating dashboard: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.before_serving
 async def startup():
