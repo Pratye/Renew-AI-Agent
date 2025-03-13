@@ -25,6 +25,7 @@ user_manager = UserManager()
 data_store = {}
 dashboards = {}
 visualizations = {}
+api_keys = {}
 
 def generate_api_key():
     """Generate a new API key"""
@@ -46,6 +47,41 @@ def require_auth(f):
         except ValueError as e:
             return jsonify({'error': str(e)}), 401
     return decorated
+
+@app.route('/api/generate_key', methods=['POST'])
+async def generate_key():
+    """Generate a new API key for the client application"""
+    try:
+        # Get client information from request
+        data = await request.get_json()
+        client_id = data.get('client_id')
+        client_secret = data.get('client_secret')
+        
+        # In production, validate client credentials against a database
+        # For now, use environment variables
+        if not client_id or not client_secret:
+            return jsonify({'error': 'Client credentials required'}), 400
+            
+        if client_id != os.getenv('ALLOWED_CLIENT_ID') or client_secret != os.getenv('ALLOWED_CLIENT_SECRET'):
+            return jsonify({'error': 'Invalid client credentials'}), 401
+        
+        # Generate new API key
+        api_key = generate_api_key()
+        
+        # Store API key with client information
+        api_keys[api_key] = {
+            'client_id': client_id,
+            'created_at': datetime.datetime.utcnow(),
+            'last_used': datetime.datetime.utcnow()
+        }
+        
+        return jsonify({
+            'api_key': api_key,
+            'expires_in': 86400  # 24 hours
+        })
+    except Exception as e:
+        logging.error(f"Error generating API key: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 # ... [rest of your existing route handlers with async/await] ...
 

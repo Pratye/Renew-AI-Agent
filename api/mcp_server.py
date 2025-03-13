@@ -15,11 +15,13 @@ class MCPServer:
             api_key (str, optional): The API key for the MCP server. Defaults to None.
         """
         self.server_url = server_url or os.getenv("MCP_SERVER_URL")
-        self.api_key = api_key or os.getenv("MCP_API_KEY")
+        if not self.server_url:
+            raise ValueError("MCP server URL is required")
         
-        if not self.server_url or not self.api_key:
-            logging.warning("MCP server URL or API key not provided. Some features will be limited.")
-            return
+        # Try to get API key from environment or generate a new one
+        self.api_key = api_key or os.getenv("MCP_API_KEY")
+        if not self.api_key:
+            self.api_key = self._get_api_key()
         
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -27,6 +29,64 @@ class MCPServer:
         }
         
         logging.info("MCP server client initialized")
+    
+    def _get_api_key(self):
+        """
+        Get an API key from the MCP server.
+        
+        Returns:
+            str: The API key
+        """
+        try:
+            # Get client credentials from environment
+            client_id = os.getenv("MCP_CLIENT_ID")
+            client_secret = os.getenv("MCP_CLIENT_SECRET")
+            
+            if not client_id or not client_secret:
+                raise ValueError("MCP client credentials not found in environment")
+            
+            # Request new API key from server
+            response = requests.post(
+                urljoin(self.server_url, "api/generate_key"),
+                json={
+                    "client_id": client_id,
+                    "client_secret": client_secret
+                }
+            )
+            
+            # Check if the request was successful
+            response.raise_for_status()
+            
+            # Parse the response
+            data = response.json()
+            
+            if "error" in data:
+                raise Exception(f"MCP server error: {data['error']}")
+            
+            # Store the API key in environment for future use
+            os.environ["MCP_API_KEY"] = data["api_key"]
+            
+            return data["api_key"]
+        
+        except Exception as e:
+            logging.error(f"Error getting API key from MCP server: {str(e)}")
+            raise Exception(f"Failed to get API key: {str(e)}")
+    
+    def refresh_api_key(self):
+        """
+        Refresh the API key.
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            new_api_key = self._get_api_key()
+            self.api_key = new_api_key
+            self.headers["Authorization"] = f"Bearer {new_api_key}"
+            return True
+        except Exception as e:
+            logging.error(f"Error refreshing API key: {str(e)}")
+            return False
     
     def fetch_data(self, query, timeout=60):
         """

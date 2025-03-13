@@ -11,6 +11,8 @@ services:
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/
       - MCP_SERVER_URL=http://mcp-server:5001
+      - MCP_CLIENT_ID=main_app
+      - MCP_CLIENT_SECRET=your_secure_secret  # Change this in production
       - FLASK_APP=app.py
       - FLASK_ENV=production
       - EVENTLET_NO_GREENDNS=yes
@@ -30,6 +32,8 @@ services:
       - "5001:5001"
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/
+      - ALLOWED_CLIENT_ID=main_app
+      - ALLOWED_CLIENT_SECRET=your_secure_secret  # Change this in production
     depends_on:
       - mongodb
     volumes:
