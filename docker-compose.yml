@@ -7,9 +7,13 @@ services:
       dockerfile: Dockerfile.main
     ports:
       - "5000:5000"
+      - "8000:8000"  # WebSocket port
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/
       - MCP_SERVER_URL=http://mcp-server:5001
+      - FLASK_APP=app.py
+      - FLASK_ENV=production
+      - EVENTLET_NO_GREENDNS=yes
     depends_on:
       - mongodb
       - mcp-server
