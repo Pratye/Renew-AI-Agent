@@ -6,11 +6,11 @@ services:
       context: .
       dockerfile: Dockerfile.main
     ports:
-      - "5000:5000"
-      - "8000:8000"  # WebSocket port
+      - "5001:5000"
+      - "8001:8000"  # WebSocket port
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/
-      - MCP_SERVER_URL=http://mcp-server:5001
+      - MCP_SERVER_URL=http://mcp-server:5002
       - MCP_CLIENT_ID=renewable_energy_app
       - MCP_CLIENT_SECRET=mcp_secret_2024_renewable_energy_consultant_secure
       - FLASK_APP=app.py
@@ -26,6 +26,7 @@ services:
       - mcp-server
     volumes:
       - .:/app
+      - vector_store:/app/data/vector_store
     networks:
       - app-network
 
@@ -34,22 +35,27 @@ services:
       context: .
       dockerfile: Dockerfile.mcp
     ports:
-      - "5001:5001"
+      - "5002:5002"
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/
       - ALLOWED_CLIENT_ID=renewable_energy_app
       - ALLOWED_CLIENT_SECRET=mcp_secret_2024_renewable_energy_consultant_secure
+      # External Data Source API Keys
+      - EIA_API_KEY=${EIA_API_KEY}
+      - SOLARGIS_API_KEY=${SOLARGIS_API_KEY}
+      - WINDEUROPE_API_KEY=${WINDEUROPE_API_KEY}
     depends_on:
       - mongodb
     volumes:
       - .:/app
+      - vector_store:/app/data/vector_store
     networks:
       - app-network
 
   mongodb:
     image: mongo:latest
     ports:
-      - "27017:27017"
+      - "27018:27017"
     volumes:
       - mongodb_data:/data/db
     networks:
@@ -60,4 +66,5 @@ networks:
     driver: bridge
 
 volumes:
-  mongodb_data: 
+  mongodb_data:
+  vector_store: 
