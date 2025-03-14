@@ -1,5 +1,5 @@
 import os
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, send_from_directory
 from flask_socketio import SocketIO
 from dotenv import load_dotenv
 import json
@@ -11,13 +11,19 @@ import logging
 from api.claude_api import ClaudeAPI
 from api.openai_api import OpenAIAPI
 from api.mcp_server import MCPServer
+from api.vector_store import VectorStore
 from utils.data_processor import DataProcessor
 from utils.report_generator import ReportGenerator
 
 # Load environment variables
 load_dotenv()
 
-app = Flask(__name__)
+# Ensure static directories exist
+os.makedirs(os.path.join(os.getcwd(), 'static'), exist_ok=True)
+os.makedirs(os.path.join(os.getcwd(), 'static', 'dashboards'), exist_ok=True)
+os.makedirs(os.path.join(os.getcwd(), 'data', 'vector_store'), exist_ok=True)
+
+app = Flask(__name__, static_folder='static')
 app.secret_key = os.urandom(24)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
@@ -80,6 +86,7 @@ if os.getenv("MCP_SERVER_URL"):
 # Initialize utility classes
 data_processor = DataProcessor()
 report_generator = ReportGenerator()
+vector_store = VectorStore()
 
 # System prompt for the renewable energy consultant persona
 SYSTEM_PROMPT = """
@@ -143,10 +150,21 @@ def chat():
             provider = available_providers[0]
             logging.warning(f"Requested provider '{provider}' not available. Using {provider} instead.")
         
+        # Check if we have similar questions in the vector store
+        similar_qa = vector_store.query_chat(user_message)
+        
+        # Add context from vector store to the system prompt if available
+        enhanced_system_prompt = SYSTEM_PROMPT
+        if similar_qa:
+            context_from_vector_store = "\n\nHere are some relevant previous Q&A pairs that might help with this query:\n"
+            for i, qa in enumerate(similar_qa, 1):
+                context_from_vector_store += f"\nQ{i}: {qa.get('question', '')}\nA{i}: {qa.get('answer', '')}\n"
+            enhanced_system_prompt += context_from_vector_store
+        
         # Generate AI response using the selected provider
         try:
             response = llm_clients[provider].generate_response(
-                SYSTEM_PROMPT,
+                enhanced_system_prompt,
                 conversation_history,
                 max_tokens=500 if context == 'info_panel' else 1000
             )
@@ -157,7 +175,7 @@ def chat():
                 if fallback_provider != provider:
                     try:
                         response = client.generate_response(
-                            SYSTEM_PROMPT,
+                            enhanced_system_prompt,
                             conversation_history,
                             max_tokens=500 if context == 'info_panel' else 1000
                         )
@@ -313,6 +331,20 @@ def chat():
             if not should_use_mcp:
                 logging.info("Request does not require MCP server")
         
+        # Store the Q&A pair in the vector store for future reference
+        try:
+            vector_store.store_chat_data(
+                question=user_message,
+                answer=response,
+                metadata={
+                    "provider": provider,
+                    "session_id": session.get('session_id'),
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        except Exception as e:
+            logging.error(f"Error storing chat data in vector store: {str(e)}")
+        
         # Add AI response to conversation history
         conversation_history.append({
             'role': 'assistant',
@@ -326,7 +358,8 @@ def chat():
         return jsonify({
             'response': response,
             'session_id': session.get('session_id'),
-            'used_mcp': bool(mcp_server and should_use_mcp)
+            'used_mcp': bool(mcp_server and should_use_mcp),
+            'provider': provider
         })
     
     except Exception as e:
@@ -414,6 +447,17 @@ def update_dashboard(dashboard_id):
     except Exception as e:
         logging.error(f"Error updating dashboard: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/static/dashboards/<dashboard_id>.html')
+def serve_dashboard(dashboard_id):
+    """
+    Serve a static dashboard HTML file.
+    """
+    try:
+        return send_from_directory(os.path.join(app.static_folder, 'dashboards'), f"{dashboard_id}.html")
+    except Exception as e:
+        logging.error(f"Error serving dashboard {dashboard_id}: {str(e)}")
+        return f"Dashboard not found: {dashboard_id}", 404
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000) 

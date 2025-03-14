@@ -430,15 +430,34 @@ class MCPServer:
         Returns:
             dict: Dashboard information including URL and ID
         """
-        # If in mock mode, always return a mock dashboard
+        # If in mock mode, generate a static HTML dashboard
         if self.use_mock_mode:
-            logging.info(f"Using mock dashboard for: {title}")
+            logging.info(f"Creating static HTML dashboard for: {title}")
             dashboard_id = str(uuid.uuid4())
+            
+            # Generate the dashboard HTML
+            dashboard_html = self._generate_static_dashboard_html(
+                dashboard_id=dashboard_id,
+                title=title,
+                description=description,
+                data=data,
+                layout=layout
+            )
+            
+            # Save the dashboard HTML to a file
+            dashboard_dir = os.path.join(os.getcwd(), 'static', 'dashboards')
+            os.makedirs(dashboard_dir, exist_ok=True)
+            
+            dashboard_file = os.path.join(dashboard_dir, f"{dashboard_id}.html")
+            with open(dashboard_file, 'w') as f:
+                f.write(dashboard_html)
+            
+            # Return the dashboard information with a URL that points to the static file
             return {
                 "dashboard_id": dashboard_id,
-                "url": f"{self.server_url}/dashboards/{dashboard_id}",
-                "embed_code": f'<iframe src="{self.server_url}/dashboards/{dashboard_id}" width="100%" height="600px" frameborder="0"></iframe>',
-                "note": "This is a mock dashboard created in mock mode."
+                "url": f"/static/dashboards/{dashboard_id}.html",
+                "embed_code": f'<iframe src="/static/dashboards/{dashboard_id}.html" width="100%" height="600px" frameborder="0"></iframe>',
+                "note": "This is a static dashboard created in mock mode."
             }
             
         try:
@@ -486,25 +505,348 @@ class MCPServer:
                 }
             except requests.exceptions.RequestException as e:
                 logging.error(f"Error communicating with MCP server: {str(e)}")
-                # Generate a mock dashboard URL as fallback
-                dashboard_id = str(uuid.uuid4())
-                return {
-                    "dashboard_id": dashboard_id,
-                    "url": f"{self.server_url}/dashboards/{dashboard_id}",
-                    "embed_code": f'<iframe src="{self.server_url}/dashboards/{dashboard_id}" width="100%" height="600px" frameborder="0"></iframe>',
-                    "note": "This is a mock dashboard due to server communication issues."
-                }
+                # Fall back to static HTML dashboard
+                return self.create_dashboard(title, description, data, layout, auto_refresh, refresh_interval)
         
         except Exception as e:
             logging.error(f"Error creating dashboard: {str(e)}")
-            # Instead of raising an exception, return a mock dashboard
-            dashboard_id = str(uuid.uuid4())
-            return {
-                "dashboard_id": dashboard_id,
-                "url": f"{self.server_url}/dashboards/{dashboard_id}",
-                "embed_code": f'<iframe src="{self.server_url}/dashboards/{dashboard_id}" width="100%" height="600px" frameborder="0"></iframe>',
-                "note": "This is a mock dashboard due to an error in dashboard creation."
-            }
+            # Fall back to static HTML dashboard
+            self.use_mock_mode = True
+            return self.create_dashboard(title, description, data, layout, auto_refresh, refresh_interval)
+            
+    def _generate_static_dashboard_html(self, dashboard_id, title, description, data, layout=None):
+        """
+        Generate a static HTML dashboard.
+        
+        Args:
+            dashboard_id (str): The dashboard ID
+            title (str): The dashboard title
+            description (str): The dashboard description
+            data (dict): The dashboard data
+            layout (dict, optional): The dashboard layout. Defaults to None.
+            
+        Returns:
+            str: The HTML content for the dashboard
+        """
+        import json
+        import plotly.graph_objects as go
+        import plotly.express as px
+        from plotly.subplots import make_subplots
+        import pandas as pd
+        from datetime import datetime
+        
+        # Extract dashboard type from layout
+        dashboard_type = layout.get('type') if layout and isinstance(layout, dict) else 'cbg'
+        
+        # Create a subplot figure
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=["Production Over Time", "Key Metrics", "Resource Distribution", "Environmental Impact"],
+            specs=[[{"type": "scatter"}, {"type": "indicator"}],
+                   [{"type": "pie"}, {"type": "bar"}]]
+        )
+        
+        # Process data based on dashboard type
+        if dashboard_type == 'cbg':
+            # Add time series data
+            if 'generation' in data.get('data', {}):
+                df = pd.DataFrame(data['data']['generation'])
+                fig.add_trace(
+                    go.Scatter(x=df['timestamp'], y=df['value'], mode='lines+markers', name='Production'),
+                    row=1, col=1
+                )
+            
+            # Add gauge for current production
+            current_value = 0
+            if 'generation' in data.get('data', {}):
+                current_value = data['data']['generation'][-1]['value'] if data['data']['generation'] else 0
+            
+            fig.add_trace(
+                go.Indicator(
+                    mode="gauge+number",
+                    value=current_value,
+                    title={'text': "Current Production (m³/day)"},
+                    gauge={'axis': {'range': [0, 200]},
+                           'bar': {'color': "darkgreen"},
+                           'steps': [
+                               {'range': [0, 50], 'color': "lightgray"},
+                               {'range': [50, 150], 'color': "lightgreen"},
+                               {'range': [150, 200], 'color': "green"}
+                           ]}
+                ),
+                row=1, col=2
+            )
+            
+            # Add pie chart for resource distribution
+            if 'community' in data.get('data', {}):
+                community_data = data['data']['community']
+                resource_labels = [f"User {i+1}" for i in range(len(community_data))]
+                resource_values = [item['generation'] for item in community_data]
+                
+                fig.add_trace(
+                    go.Pie(labels=resource_labels, values=resource_values, name="Resource Distribution"),
+                    row=2, col=1
+                )
+            
+            # Add bar chart for environmental impact
+            if 'environmental_impact' in data.get('data', {}):
+                env_impact = data['data']['environmental_impact']
+                impact_labels = list(env_impact.keys())
+                impact_values = list(env_impact.values())
+                
+                fig.add_trace(
+                    go.Bar(x=impact_labels, y=impact_values, name="Environmental Impact"),
+                    row=2, col=2
+                )
+        
+        elif dashboard_type == 'solar_farm':
+            # Implement solar farm specific visualizations
+            # Add time series data
+            if 'generation' in data.get('data', {}):
+                df = pd.DataFrame(data['data']['generation'])
+                fig.add_trace(
+                    go.Scatter(x=df['timestamp'], y=df['value'], mode='lines+markers', name='Solar Generation'),
+                    row=1, col=1
+                )
+            
+            # Add gauge for current production
+            current_value = 0
+            if 'generation' in data.get('data', {}):
+                current_value = data['data']['generation'][-1]['value'] if data['data']['generation'] else 0
+            
+            fig.add_trace(
+                go.Indicator(
+                    mode="gauge+number",
+                    value=current_value,
+                    title={'text': "Current Output (kW)"},
+                    gauge={'axis': {'range': [0, 2000]},
+                           'bar': {'color': "darkorange"},
+                           'steps': [
+                               {'range': [0, 500], 'color': "lightgray"},
+                               {'range': [500, 1500], 'color': "lightyellow"},
+                               {'range': [1500, 2000], 'color': "orange"}
+                           ]}
+                ),
+                row=1, col=2
+            )
+            
+            # Add pie chart for panel efficiency
+            if 'solar' in data.get('data', {}):
+                solar_data = data['data']['solar']
+                fig.add_trace(
+                    go.Pie(
+                        labels=["Efficient", "Average", "Below Average"],
+                        values=[solar_data.get('efficiency', 0.2) * 100, 
+                                (1 - solar_data.get('efficiency', 0.2)) * 70, 
+                                (1 - solar_data.get('efficiency', 0.2)) * 30],
+                        name="Panel Efficiency"
+                    ),
+                    row=2, col=1
+                )
+            
+            # Add bar chart for irradiance data
+            if 'solar' in data.get('data', {}) and 'irradiance_data' in data['data']['solar']:
+                irradiance_data = data['data']['solar']['irradiance_data']
+                df = pd.DataFrame(irradiance_data)
+                
+                fig.add_trace(
+                    go.Bar(x=df['timestamp'], y=df['value'], name="Solar Irradiance"),
+                    row=2, col=2
+                )
+        
+        elif dashboard_type == 'wind_farm':
+            # Implement wind farm specific visualizations
+            # Add time series data
+            if 'generation' in data.get('data', {}):
+                df = pd.DataFrame(data['data']['generation'])
+                fig.add_trace(
+                    go.Scatter(x=df['timestamp'], y=df['value'], mode='lines+markers', name='Wind Generation'),
+                    row=1, col=1
+                )
+            
+            # Add gauge for current production
+            current_value = 0
+            if 'generation' in data.get('data', {}):
+                current_value = data['data']['generation'][-1]['value'] if data['data']['generation'] else 0
+            
+            fig.add_trace(
+                go.Indicator(
+                    mode="gauge+number",
+                    value=current_value,
+                    title={'text': "Current Output (kW)"},
+                    gauge={'axis': {'range': [0, 3000]},
+                           'bar': {'color': "darkblue"},
+                           'steps': [
+                               {'range': [0, 1000], 'color': "lightgray"},
+                               {'range': [1000, 2000], 'color': "lightblue"},
+                               {'range': [2000, 3000], 'color': "blue"}
+                           ]}
+                ),
+                row=1, col=2
+            )
+            
+            # Add pie chart for turbine distribution
+            if 'wind' in data.get('data', {}):
+                wind_data = data['data']['wind']
+                fig.add_trace(
+                    go.Pie(
+                        labels=["High Output", "Medium Output", "Low Output"],
+                        values=[40, 35, 25],  # Example values
+                        name="Turbine Performance"
+                    ),
+                    row=2, col=1
+                )
+            
+            # Add bar chart for wind speed data
+            if 'wind' in data.get('data', {}) and 'wind_data' in data['data']['wind']:
+                wind_speed_data = data['data']['wind']['wind_data']
+                df = pd.DataFrame(wind_speed_data)
+                
+                fig.add_trace(
+                    go.Bar(x=df['timestamp'], y=df['value'], name="Wind Speed"),
+                    row=2, col=2
+                )
+        
+        elif dashboard_type == 'hybrid_plant':
+            # Implement hybrid plant specific visualizations
+            # Add time series data
+            if 'generation' in data.get('data', {}):
+                df = pd.DataFrame(data['data']['generation'])
+                fig.add_trace(
+                    go.Scatter(x=df['timestamp'], y=df['value'], mode='lines+markers', name='Total Generation'),
+                    row=1, col=1
+                )
+            
+            # Add gauge for current production
+            current_value = 0
+            if 'generation' in data.get('data', {}):
+                current_value = data['data']['generation'][-1]['value'] if data['data']['generation'] else 0
+            
+            fig.add_trace(
+                go.Indicator(
+                    mode="gauge+number",
+                    value=current_value,
+                    title={'text': "Current Output (kW)"},
+                    gauge={'axis': {'range': [0, 5000]},
+                           'bar': {'color': "darkpurple"},
+                           'steps': [
+                               {'range': [0, 1500], 'color': "lightgray"},
+                               {'range': [1500, 3500], 'color': "lavender"},
+                               {'range': [3500, 5000], 'color': "purple"}
+                           ]}
+                ),
+                row=1, col=2
+            )
+            
+            # Add pie chart for energy mix
+            if 'mix' in data.get('data', {}):
+                mix_data = data['data']['mix']
+                fig.add_trace(
+                    go.Pie(
+                        labels=["Solar", "Wind", "Other"],
+                        values=[
+                            mix_data.get('solar_percentage', 0.4) * 100,
+                            mix_data.get('wind_percentage', 0.4) * 100,
+                            mix_data.get('other_percentage', 0.2) * 100
+                        ],
+                        name="Energy Mix"
+                    ),
+                    row=2, col=1
+                )
+            
+            # Add bar chart for capacity utilization
+            fig.add_trace(
+                go.Bar(
+                    x=["Solar", "Wind", "Other", "Total"],
+                    y=[
+                        data['data'].get('mix', {}).get('solar_percentage', 0.4) * data['data'].get('mix', {}).get('total_capacity', 1000),
+                        data['data'].get('mix', {}).get('wind_percentage', 0.4) * data['data'].get('mix', {}).get('total_capacity', 1000),
+                        data['data'].get('mix', {}).get('other_percentage', 0.2) * data['data'].get('mix', {}).get('total_capacity', 1000),
+                        data['data'].get('mix', {}).get('total_capacity', 1000)
+                    ],
+                    name="Capacity (kW)"
+                ),
+                row=2, col=2
+            )
+        
+        # Update layout
+        fig.update_layout(
+            title_text=f"{title}",
+            height=800,
+            width=1000,
+            showlegend=True,
+            template="plotly_white"
+        )
+        
+        # Add description as annotation
+        fig.add_annotation(
+            text=description,
+            xref="paper", yref="paper",
+            x=0.5, y=-0.1,
+            showarrow=False,
+            font=dict(size=12)
+        )
+        
+        # Generate HTML
+        dashboard_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>{title}</title>
+            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 20px;
+                    background-color: #f5f5f5;
+                }}
+                .dashboard-container {{
+                    max-width: 1200px;
+                    margin: 0 auto;
+                    background-color: white;
+                    padding: 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+                }}
+                h1 {{
+                    color: #333;
+                    border-bottom: 1px solid #eee;
+                    padding-bottom: 10px;
+                }}
+                .description {{
+                    color: #666;
+                    margin-bottom: 20px;
+                }}
+                .dashboard-id {{
+                    color: #999;
+                    font-size: 12px;
+                    margin-top: 20px;
+                }}
+                .data-timestamp {{
+                    color: #999;
+                    font-size: 12px;
+                    margin-top: 10px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="dashboard-container">
+                <h1>{title}</h1>
+                <div class="description">{description}</div>
+                <div id="dashboard"></div>
+                <div class="data-timestamp">Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+                <div class="dashboard-id">Dashboard ID: {dashboard_id}</div>
+            </div>
+            <script>
+                var dashboardData = {json.dumps(fig.to_dict())};
+                Plotly.newPlot('dashboard', dashboardData.data, dashboardData.layout);
+            </script>
+        </body>
+        </html>
+        """
+        
+        return dashboard_html
     
     def update_dashboard(self, dashboard_id, data=None, layout=None, settings=None):
         """
