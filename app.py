@@ -54,9 +54,28 @@ if os.getenv("MCP_SERVER_URL"):
             api_key=None,  # Don't use pre-defined key
             auto_generate_key=True  # Generate new key using client credentials
         )
-        logging.info("MCP server initialized successfully")
+        
+        # Test connection to MCP server
+        if mcp_server.check_health():
+            logging.info("MCP server initialized and connection verified successfully")
+        else:
+            logging.warning("MCP server initialized but health check failed. Creating a local fallback instance.")
+            # Create a local fallback instance that will use mock data
+            mcp_server.use_mock_mode = True
     except Exception as e:
-        logging.warning(f"Failed to initialize MCP server: {str(e)}. Some features may be limited.")
+        logging.warning(f"Failed to initialize MCP server: {str(e)}. Creating a local fallback instance.")
+        # Create a local fallback instance
+        try:
+            mcp_server = MCPServer(
+                server_url="http://localhost:5002",  # Use a dummy URL
+                api_key="mock_api_key",
+                auto_generate_key=False
+            )
+            mcp_server.use_mock_mode = True
+            logging.info("Local fallback MCP server instance created")
+        except Exception as local_e:
+            logging.error(f"Failed to create local fallback MCP server: {str(local_e)}. Some features will be limited.")
+            mcp_server = None
 
 # Initialize utility classes
 data_processor = DataProcessor()

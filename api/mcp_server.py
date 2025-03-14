@@ -33,6 +33,9 @@ class MCPServer:
             "Content-Type": "application/json"
         }
         
+        # Flag to indicate if we should use mock data instead of real API calls
+        self.use_mock_mode = False
+        
         logging.info("MCP server client initialized")
     
     def _get_api_key(self):
@@ -105,6 +108,12 @@ class MCPServer:
         Returns:
             dict: The fetched data
         """
+        # If in mock mode, always generate mock data
+        if self.use_mock_mode:
+            logging.info(f"Using mock data for query: {query}")
+            dashboard_type = dashboard_type or self._infer_dashboard_type_from_query(query)
+            return self._generate_mock_data(dashboard_type, query)
+            
         try:
             # Prepare the request payload
             payload = {
@@ -160,7 +169,32 @@ class MCPServer:
                 logging.warning(f"Error connecting to MCP server. Generating mock data for {dashboard_type} dashboard.")
                 return self._generate_mock_data(dashboard_type, query)
             raise Exception(f"Failed to fetch data: {str(e)}")
+    
+    def _infer_dashboard_type_from_query(self, query):
+        """
+        Infer the dashboard type from a query.
+        
+        Args:
+            query (str): The query to analyze
             
+        Returns:
+            str: The inferred dashboard type
+        """
+        query_lower = query.lower()
+        
+        # Check for specific energy types
+        if any(term in query_lower for term in ['solar', 'sun', 'photovoltaic', 'pv']):
+            return 'solar_farm'
+        elif any(term in query_lower for term in ['wind', 'turbine', 'windmill']):
+            return 'wind_farm'
+        elif any(term in query_lower for term in ['bio', 'gas', 'methane', 'organic', 'waste', 'community', 'compressed']):
+            return 'cbg'
+        elif any(term in query_lower for term in ['multiple', 'combined', 'hybrid', 'mix', 'integrated']):
+            return 'hybrid_plant'
+        
+        # Default to CBG if no specific type is mentioned
+        return 'cbg'
+    
     def _generate_mock_data(self, dashboard_type, query):
         """
         Generate mock data for dashboard creation when real data is unavailable.
@@ -396,6 +430,17 @@ class MCPServer:
         Returns:
             dict: Dashboard information including URL and ID
         """
+        # If in mock mode, always return a mock dashboard
+        if self.use_mock_mode:
+            logging.info(f"Using mock dashboard for: {title}")
+            dashboard_id = str(uuid.uuid4())
+            return {
+                "dashboard_id": dashboard_id,
+                "url": f"{self.server_url}/dashboards/{dashboard_id}",
+                "embed_code": f'<iframe src="{self.server_url}/dashboards/{dashboard_id}" width="100%" height="600px" frameborder="0"></iframe>',
+                "note": "This is a mock dashboard created in mock mode."
+            }
+            
         try:
             if not self.server_url or not self.api_key:
                 raise ValueError("MCP server not properly configured")
@@ -570,4 +615,33 @@ class MCPServer:
         
         except Exception as e:
             logging.error(f"Error generating default layout: {str(e)}")
-            return {"type": "grid", "columns": 1, "widgets": [{"type": "table", "data_source": "raw_data"}]} 
+            return {"type": "grid", "columns": 1, "widgets": [{"type": "table", "data_source": "raw_data"}]}
+    
+    def check_health(self):
+        """
+        Check if the MCP server is available and responding.
+        
+        Returns:
+            bool: True if the server is healthy, False otherwise
+        """
+        try:
+            # Try to connect to the health endpoint
+            response = requests.get(
+                urljoin(self.server_url, "api/health"),
+                headers=self.headers,
+                timeout=5  # Short timeout for health check
+            )
+            
+            # Check if the response is successful
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "ok":
+                    return True
+            
+            # If we get here, the health check failed
+            logging.warning(f"MCP server health check failed with status code {response.status_code}")
+            return False
+            
+        except Exception as e:
+            logging.warning(f"MCP server health check failed: {str(e)}")
+            return False 
