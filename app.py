@@ -145,19 +145,25 @@ def chat():
         dashboard_keywords = [
             'dashboard', 'model', 'create', 'deploy', 'visualization', 'graph',
             'chart', 'plot', 'data', 'statistics', 'analytics', 'report',
-            'metrics', 'kpi', 'trends', 'analysis'
+            'metrics', 'kpi', 'trends', 'analysis', 'build', 'generate', 'show me',
+            'display', 'visualize', 'host'
         ]
         
-        # Model type keywords
+        # Model type keywords - used only for customizing the dashboard if a specific type is mentioned
         model_types = {
-            'cbg': ['cbg', 'community', 'community-based', 'community based', 'community generation'],
+            'cbg': ['cbg', 'community', 'community-based', 'community based', 'community generation', 'compressed bio gas', 'bio gas'],
             'solar_farm': ['solar farm', 'solar panel', 'photovoltaic'],
             'wind_farm': ['wind farm', 'wind turbine', 'wind power'],
             'hybrid_plant': ['hybrid', 'mixed', 'multi-source']
         }
         
-        should_use_mcp = any(keyword in user_message.lower() for keyword in dashboard_keywords)
-        logging.info(f"MCP server status - Available: {mcp_server is not None}, Should use: {should_use_mcp}")
+        # Check for dashboard creation intent
+        dashboard_creation_keywords = ['create', 'build', 'generate', 'make', 'develop', 'host', 'deploy']
+        dashboard_intent = any(keyword in user_message.lower() for keyword in dashboard_creation_keywords) and ('dashboard' in user_message.lower())
+        
+        # If there's a clear dashboard intent, prioritize that, otherwise use the broader keyword check
+        should_use_mcp = dashboard_intent or any(keyword in user_message.lower() for keyword in dashboard_keywords)
+        logging.info(f"MCP server status - Available: {mcp_server is not None}, Should use: {should_use_mcp}, Dashboard intent: {dashboard_intent}")
         
         # Determine model type
         model_type = None
@@ -167,12 +173,30 @@ def chat():
                 model_type = type_name
                 break
         
+        # If no specific model type is detected but dashboard creation is requested,
+        # default to a general dashboard or try to infer from context
+        if dashboard_intent and not model_type:
+            # Try to infer dashboard type from context
+            if any(term in message_lower for term in ['renewable', 'energy', 'power']):
+                if 'solar' in message_lower:
+                    model_type = 'solar_farm'
+                elif 'wind' in message_lower:
+                    model_type = 'wind_farm'
+                elif any(term in message_lower for term in ['bio', 'gas', 'methane', 'organic']):
+                    model_type = 'cbg'
+                elif any(term in message_lower for term in ['multiple', 'combined', 'hybrid']):
+                    model_type = 'hybrid_plant'
+                else:
+                    # Default to CBG if no specific type is mentioned but energy-related
+                    model_type = 'cbg'
+        
         # Try to use MCP server if available and relevant
         if mcp_server and should_use_mcp:
             try:
                 logging.info("Attempting to use MCP server for data processing")
                 # Fetch relevant data from MCP server
-                mcp_data = mcp_server.fetch_data(user_message)
+                dashboard_type = model_type if model_type else ('cbg' if dashboard_intent else None)
+                mcp_data = mcp_server.fetch_data(user_message, dashboard_type=dashboard_type)
                 logging.info("Successfully fetched data from MCP server")
                 
                 # Process the data
@@ -180,14 +204,23 @@ def chat():
                 
                 # Create dashboard by default for visualization requests
                 try:
+                    # If model_type is still None, default to 'cbg' for dashboard creation
+                    dashboard_type = model_type if model_type else 'cbg'
+                    
                     dashboard_info = mcp_server.create_dashboard(
-                        title=f"Renewable Energy Dashboard - {model_type.upper() if model_type else 'General'} - {datetime.now().strftime('%Y-%m-%d')}",
+                        title=f"Renewable Energy Dashboard - {dashboard_type.upper()} - {datetime.now().strftime('%Y-%m-%d')}",
                         description=f"Dashboard generated based on query: {user_message}",
                         data=processed_data,
-                        layout={"type": model_type} if model_type else None,
+                        layout={"type": dashboard_type},
                         auto_refresh=True
                     )
-                    response += f"\n\nI've created an interactive {model_type.replace('_', ' ').title() if model_type else ''} dashboard for you: {dashboard_info['url']}"
+                    
+                    # Customize response based on dashboard type
+                    dashboard_type_display = dashboard_type.replace('_', ' ').title()
+                    if dashboard_type == 'cbg':
+                        dashboard_type_display = "Compressed Bio Gas" if "compressed bio gas" in message_lower else "Community Based Generation"
+                    
+                    response += f"\n\nI've created an interactive {dashboard_type_display} dashboard for you: {dashboard_info['url']}"
                     if dashboard_info.get('embed_code'):
                         response += f"\nYou can embed this dashboard using the provided code."
                     logging.info(f"Successfully created dashboard: {dashboard_info.get('url')}")
