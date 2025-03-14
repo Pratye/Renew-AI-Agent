@@ -64,8 +64,8 @@ report_generator = ReportGenerator()
 
 # System prompt for the renewable energy consultant persona
 SYSTEM_PROMPT = """
-You are a Renewable Energy Consultant chatbot. Your expertise includes solar, wind, hydro, 
-geothermal, and other renewable energy sources. You can provide information on:
+You are a Renewable Energy Consultant chatbot with autonomous dashboard creation capabilities. Your expertise includes solar, wind, hydro, 
+geothermal, biogas, and other renewable energy sources. You can provide information on:
 
 - Renewable energy technologies and their applications
 - Cost analysis and ROI calculations for renewable energy projects
@@ -74,10 +74,19 @@ geothermal, and other renewable energy sources. You can provide information on:
 - Market trends and forecasts
 - Best practices for implementation
 
-You can generate reports and dashboards based on data analysis. You have access to various 
-data sources and can perform web searches for the latest information.
+You proactively create interactive dashboards and visualizations based on user queries. When users ask about renewable energy data, 
+performance metrics, or any analysis that would benefit from visualization, you automatically generate and host a relevant dashboard.
 
-Always be helpful, informative, and focused on providing accurate information about renewable energy.
+You can create different types of dashboards:
+- Community Based Generation (CBG) / Compressed Bio Gas dashboards
+- Solar Farm dashboards
+- Wind Farm dashboards
+- Hybrid Plant dashboards
+
+You have access to various data sources and can perform web searches for the latest information. You can also generate comprehensive 
+reports based on your analysis.
+
+Always be helpful, informative, and focused on providing accurate information about renewable energy with visual aids whenever possible.
 """
 
 @app.route('/')
@@ -141,28 +150,47 @@ def chat():
                 return jsonify({'error': 'All available LLM providers failed'}), 500
         
         # Check if we should use MCP server
-        # Keywords that indicate dashboard/data visualization requests
+        # Keywords that indicate dashboard/data visualization requests - expanded to be more inclusive
         dashboard_keywords = [
-            'dashboard', 'model', 'create', 'deploy', 'visualization', 'graph',
-            'chart', 'plot', 'data', 'statistics', 'analytics', 'report',
-            'metrics', 'kpi', 'trends', 'analysis', 'build', 'generate', 'show me',
-            'display', 'visualize', 'host'
+            'dashboard', 'model', 'create', 'deploy', 'visualization', 'graph', 'chart', 'plot', 'data', 
+            'statistics', 'analytics', 'report', 'metrics', 'kpi', 'trends', 'analysis', 'build', 'generate', 
+            'show me', 'display', 'visualize', 'host', 'make', 'develop', 'construct', 'design', 'implement',
+            'setup', 'configure', 'prepare', 'establish', 'produce', 'render', 'showcase', 'demonstrate',
+            'illustrate', 'present', 'view', 'monitor', 'track', 'overview', 'summary', 'insights'
         ]
         
         # Model type keywords - used only for customizing the dashboard if a specific type is mentioned
         model_types = {
-            'cbg': ['cbg', 'community', 'community-based', 'community based', 'community generation', 'compressed bio gas', 'bio gas'],
-            'solar_farm': ['solar farm', 'solar panel', 'photovoltaic'],
-            'wind_farm': ['wind farm', 'wind turbine', 'wind power'],
-            'hybrid_plant': ['hybrid', 'mixed', 'multi-source']
+            'cbg': ['cbg', 'community', 'community-based', 'community based', 'community generation', 'compressed bio gas', 'bio gas', 'biogas', 'methane', 'organic waste'],
+            'solar_farm': ['solar farm', 'solar panel', 'photovoltaic', 'solar energy', 'solar power', 'pv', 'solar array'],
+            'wind_farm': ['wind farm', 'wind turbine', 'wind power', 'wind energy', 'windmill', 'wind generation'],
+            'hybrid_plant': ['hybrid', 'mixed', 'multi-source', 'combined', 'integrated', 'multiple sources']
         }
         
-        # Check for dashboard creation intent
-        dashboard_creation_keywords = ['create', 'build', 'generate', 'make', 'develop', 'host', 'deploy']
-        dashboard_intent = any(keyword in user_message.lower() for keyword in dashboard_creation_keywords) and ('dashboard' in user_message.lower())
+        # Autonomous dashboard creation detection
+        # 1. Check for explicit dashboard creation intent
+        dashboard_creation_keywords = ['create', 'build', 'generate', 'make', 'develop', 'host', 'deploy', 'setup', 'implement']
+        explicit_dashboard_intent = any(keyword in user_message.lower() for keyword in dashboard_creation_keywords) and ('dashboard' in user_message.lower())
         
-        # If there's a clear dashboard intent, prioritize that, otherwise use the broader keyword check
+        # 2. Check for implicit dashboard intent (asking for visualization or data presentation)
+        visualization_keywords = ['show', 'display', 'visualize', 'graph', 'chart', 'plot', 'see', 'view']
+        data_subject_keywords = ['data', 'statistics', 'metrics', 'performance', 'results', 'numbers', 'figures', 'trends']
+        implicit_dashboard_intent = any(v_keyword in user_message.lower() for v_keyword in visualization_keywords) and any(d_keyword in user_message.lower() for d_keyword in data_subject_keywords)
+        
+        # 3. Check for domain-specific requests that would benefit from a dashboard
+        domain_specific_intent = any(term in user_message.lower() for term in ['energy production', 'power generation', 'efficiency analysis', 'performance metrics', 'renewable output', 'generation capacity'])
+        
+        # 4. Check if the query is asking about a specific model or system that would benefit from visualization
+        model_mention = any(any(keyword in user_message.lower() for keyword in keywords) for keywords in model_types.values())
+        
+        # Combine all intent signals - be more aggressive in creating dashboards
+        dashboard_intent = explicit_dashboard_intent or implicit_dashboard_intent or (domain_specific_intent and model_mention)
+        
+        # Always use MCP for data-related queries, but prioritize dashboard creation for dashboard intents
         should_use_mcp = dashboard_intent or any(keyword in user_message.lower() for keyword in dashboard_keywords)
+        
+        # Log the decision process
+        logging.info(f"Dashboard detection - Explicit: {explicit_dashboard_intent}, Implicit: {implicit_dashboard_intent}, Domain: {domain_specific_intent}, Model mention: {model_mention}")
         logging.info(f"MCP server status - Available: {mcp_server is not None}, Should use: {should_use_mcp}, Dashboard intent: {dashboard_intent}")
         
         # Determine model type
@@ -175,16 +203,16 @@ def chat():
         
         # If no specific model type is detected but dashboard creation is requested,
         # default to a general dashboard or try to infer from context
-        if dashboard_intent and not model_type:
+        if should_use_mcp and not model_type:
             # Try to infer dashboard type from context
-            if any(term in message_lower for term in ['renewable', 'energy', 'power']):
-                if 'solar' in message_lower:
+            if any(term in message_lower for term in ['renewable', 'energy', 'power', 'electricity', 'generation']):
+                if any(term in message_lower for term in ['solar', 'sun', 'photovoltaic', 'pv']):
                     model_type = 'solar_farm'
-                elif 'wind' in message_lower:
+                elif any(term in message_lower for term in ['wind', 'turbine', 'windmill']):
                     model_type = 'wind_farm'
-                elif any(term in message_lower for term in ['bio', 'gas', 'methane', 'organic']):
+                elif any(term in message_lower for term in ['bio', 'gas', 'methane', 'organic', 'waste', 'community']):
                     model_type = 'cbg'
-                elif any(term in message_lower for term in ['multiple', 'combined', 'hybrid']):
+                elif any(term in message_lower for term in ['multiple', 'combined', 'hybrid', 'mix', 'integrated']):
                     model_type = 'hybrid_plant'
                 else:
                     # Default to CBG if no specific type is mentioned but energy-related
@@ -202,27 +230,47 @@ def chat():
                 # Process the data
                 processed_data = data_processor.process(mcp_data)
                 
-                # Create dashboard by default for visualization requests
+                # Always create a dashboard for data-related queries
                 try:
                     # If model_type is still None, default to 'cbg' for dashboard creation
                     dashboard_type = model_type if model_type else 'cbg'
                     
+                    # Create a more descriptive title based on the query
+                    query_keywords = user_message.lower().split()
+                    title_keywords = [word.capitalize() for word in query_keywords if len(word) > 3 and word not in ['what', 'when', 'where', 'which', 'how', 'can', 'will', 'should', 'could', 'would', 'about', 'with', 'from', 'that', 'this', 'these', 'those']]
+                    title_suffix = ' '.join(title_keywords[:5]) if title_keywords else user_message[:50]
+                    
                     dashboard_info = mcp_server.create_dashboard(
-                        title=f"Renewable Energy Dashboard - {dashboard_type.upper()} - {datetime.now().strftime('%Y-%m-%d')}",
+                        title=f"Renewable Energy Dashboard - {dashboard_type.upper()} - {title_suffix}",
                         description=f"Dashboard generated based on query: {user_message}",
                         data=processed_data,
                         layout={"type": dashboard_type},
                         auto_refresh=True
                     )
                     
-                    # Customize response based on dashboard type
+                    # Customize response based on dashboard type and query intent
                     dashboard_type_display = dashboard_type.replace('_', ' ').title()
                     if dashboard_type == 'cbg':
-                        dashboard_type_display = "Compressed Bio Gas" if "compressed bio gas" in message_lower else "Community Based Generation"
+                        if "compressed bio gas" in message_lower:
+                            dashboard_type_display = "Compressed Bio Gas"
+                        elif "biogas" in message_lower:
+                            dashboard_type_display = "Biogas"
+                        else:
+                            dashboard_type_display = "Community Based Generation"
                     
-                    response += f"\n\nI've created an interactive {dashboard_type_display} dashboard for you: {dashboard_info['url']}"
+                    # Customize the response based on the detected intent
+                    if explicit_dashboard_intent:
+                        response += f"\n\nI've created an interactive {dashboard_type_display} dashboard for you as requested: {dashboard_info['url']}"
+                    elif implicit_dashboard_intent:
+                        response += f"\n\nTo help visualize this data, I've created an interactive {dashboard_type_display} dashboard for you: {dashboard_info['url']}"
+                    elif domain_specific_intent:
+                        response += f"\n\nI've prepared a {dashboard_type_display} dashboard to help you analyze this information: {dashboard_info['url']}"
+                    else:
+                        response += f"\n\nI've also created a {dashboard_type_display} dashboard to help visualize this data: {dashboard_info['url']}"
+                    
                     if dashboard_info.get('embed_code'):
                         response += f"\nYou can embed this dashboard using the provided code."
+                    
                     logging.info(f"Successfully created dashboard: {dashboard_info.get('url')}")
                 except Exception as e:
                     logging.error(f"Error creating dashboard: {str(e)}")
