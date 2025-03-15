@@ -7,14 +7,9 @@ import random
 import sys
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
-
-# Import MCP libraries
-try:
-    from mcp import ServerSession, StdioClientParameters
-    from mcp.server.stdio import stdio_server
-except ImportError:
-    logging.error("MCP libraries not installed. Please install with: pip install mcp-client-python")
-    raise
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -156,7 +151,7 @@ class RenewableEnergyMCPServer:
         """Initialize the server"""
         self.tools = TOOLS
     
-    async def handle_fetch_renewable_data(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_fetch_renewable_data(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle fetch_renewable_data tool calls.
         
@@ -182,7 +177,7 @@ class RenewableEnergyMCPServer:
             "timestamp": datetime.now().isoformat()
         }
     
-    async def handle_create_dashboard(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_create_dashboard(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle create_dashboard tool calls.
         
@@ -210,7 +205,7 @@ class RenewableEnergyMCPServer:
             "message": f"Dashboard '{title}' created successfully"
         }
     
-    async def handle_calculate_roi(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_calculate_roi(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle calculate_roi tool calls.
         
@@ -256,7 +251,7 @@ class RenewableEnergyMCPServer:
             "analysis_timestamp": datetime.now().isoformat()
         }
     
-    async def handle_get_policy_information(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_get_policy_information(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle get_policy_information tool calls.
         
@@ -282,7 +277,7 @@ class RenewableEnergyMCPServer:
             "last_updated": datetime.now().isoformat()
         }
     
-    async def handle_search_renewable_database(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_search_renewable_database(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle search_renewable_database tool calls.
         
@@ -571,66 +566,83 @@ class RenewableEnergyMCPServer:
         # Limit results
         return results[:max_results]
 
-async def main():
-    """Main function to run the MCP server"""
-    server = RenewableEnergyMCPServer()
+class MCPRequestHandler(BaseHTTPRequestHandler):
+    """HTTP request handler for the MCP server"""
     
-    # Set up client parameters
-    client_params = StdioClientParameters()
+    def __init__(self, *args, **kwargs):
+        self.server_instance = RenewableEnergyMCPServer()
+        super().__init__(*args, **kwargs)
     
-    # Create server session
-    async with stdio_server(client_params) as (stdio, write):
-        session = ServerSession(stdio, write)
+    def _set_headers(self, content_type="application/json"):
+        self.send_response(200)
+        self.send_header("Content-type", content_type)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+    
+    def do_OPTIONS(self):
+        self._set_headers()
+    
+    def do_GET(self):
+        if self.path == "/health":
+            self._set_headers()
+            self.wfile.write(json.dumps({"status": "healthy"}).encode())
+        elif self.path == "/tools":
+            self._set_headers()
+            self.wfile.write(json.dumps({"tools": TOOLS}).encode())
+        else:
+            self._set_headers()
+            self.wfile.write(json.dumps({"error": "Not found"}).encode())
+    
+    def do_POST(self):
+        content_length = int(self.headers["Content-Length"])
+        post_data = self.rfile.read(content_length)
         
-        # Register tools
-        for tool in server.tools:
-            session.register_tool(
-                name=tool["name"],
-                description=tool["description"],
-                input_schema=tool["inputSchema"]
-            )
-        
-        # Initialize session
-        await session.initialize()
-        
-        # Handle tool calls
-        while True:
-            request = await session.receive_tool_call()
+        try:
+            data = json.loads(post_data.decode())
             
-            try:
-                # Route to appropriate handler based on tool name
-                if request.name == "fetch_renewable_data":
-                    result = await server.handle_fetch_renewable_data(request.parameters)
-                elif request.name == "create_dashboard":
-                    result = await server.handle_create_dashboard(request.parameters)
-                elif request.name == "calculate_roi":
-                    result = await server.handle_calculate_roi(request.parameters)
-                elif request.name == "get_policy_information":
-                    result = await server.handle_get_policy_information(request.parameters)
-                elif request.name == "search_renewable_database":
-                    result = await server.handle_search_renewable_database(request.parameters)
+            if self.path == "/api/tool":
+                tool_name = data.get("tool")
+                parameters = data.get("parameters", {})
+                
+                if tool_name == "fetch_renewable_data":
+                    result = self.server_instance.handle_fetch_renewable_data(parameters)
+                elif tool_name == "create_dashboard":
+                    result = self.server_instance.handle_create_dashboard(parameters)
+                elif tool_name == "calculate_roi":
+                    result = self.server_instance.handle_calculate_roi(parameters)
+                elif tool_name == "get_policy_information":
+                    result = self.server_instance.handle_get_policy_information(parameters)
+                elif tool_name == "search_renewable_database":
+                    result = self.server_instance.handle_search_renewable_database(parameters)
                 else:
-                    result = {
-                        "status": "error",
-                        "message": f"Unknown tool: {request.name}"
-                    }
+                    result = {"error": f"Unknown tool: {tool_name}"}
                 
-                # Send response
-                await session.send_tool_result(request.id, json.dumps(result))
-                
-            except Exception as e:
-                logging.error(f"Error handling tool call: {str(e)}")
-                await session.send_tool_result(
-                    request.id,
-                    json.dumps({
-                        "status": "error",
-                        "message": f"Error processing request: {str(e)}"
-                    })
-                )
+                self._set_headers()
+                self.wfile.write(json.dumps(result).encode())
+            else:
+                self._set_headers()
+                self.wfile.write(json.dumps({"error": "Not found"}).encode())
+        
+        except json.JSONDecodeError:
+            self._set_headers()
+            self.wfile.write(json.dumps({"error": "Invalid JSON"}).encode())
+        except Exception as e:
+            self._set_headers()
+            self.wfile.write(json.dumps({"error": str(e)}).encode())
+
+def run_server(port=5002):
+    """Run the HTTP server"""
+    server_address = ("", port)
+    httpd = HTTPServer(server_address, MCPRequestHandler)
+    logging.info(f"Starting MCP server on port {port}")
+    httpd.serve_forever()
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        port = int(os.getenv("SERVER_PORT", 5002))
+        run_server(port)
     except KeyboardInterrupt:
         logging.info("Server stopped by user")
     except Exception as e:

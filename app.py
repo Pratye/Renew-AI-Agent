@@ -28,7 +28,9 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # Initialize MCP client
 mcp_client = None
 try:
+    server_url = os.getenv("MCP_SERVER_URL", "http://localhost:5002")
     server_script_path = os.getenv("MCP_SERVER_SCRIPT_PATH")
+    
     if not server_script_path:
         logging.warning("MCP_SERVER_SCRIPT_PATH not set. Using default path.")
         # Try to find the server script in common locations
@@ -43,14 +45,12 @@ try:
                 logging.info(f"Found MCP server script at: {path}")
                 break
     
-    if server_script_path:
-        mcp_client = SimpleMCPClient(server_script_path)
-        if mcp_client.connect_to_server():
-            logging.info("MCP client initialized and connected successfully")
-        else:
-            logging.error("Failed to connect to MCP server")
+    logging.info(f"Initializing MCP client with server URL: {server_url}")
+    mcp_client = SimpleMCPClient(server_url=server_url, server_script_path=server_script_path)
+    if mcp_client.connect_to_server():
+        logging.info("MCP client initialized and connected successfully")
     else:
-        logging.error("No MCP server script found. MCP client will not be available.")
+        logging.error("Failed to connect to MCP server")
 except Exception as e:
     logging.error(f"Failed to initialize MCP client: {str(e)}")
 

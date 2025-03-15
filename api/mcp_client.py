@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import requests
 import subprocess
 import threading
 import queue
@@ -170,7 +171,7 @@ class AnthropicProvider(LLMProvider):
             content = message.get('content', '')
             
             if role == 'system':
-                prompt += f"\n\nHuman: <system>{content}</system>\n\nAssistant: I'll follow those instructions."
+                prompt += f"\n\nHuman: <s>{content}</s>\n\nAssistant: I'll follow those instructions."
             elif role == 'user':
                 prompt += f"\n\nHuman: {content}"
             elif role == 'assistant':
@@ -184,17 +185,17 @@ class SimpleMCPClient:
     A simplified MCP client implementation that works with any LLM provider.
     """
     
-    def __init__(self, server_script_path=None):
+    def __init__(self, server_url=None, server_script_path=None):
         """
         Initialize the MCP client.
         
         Args:
+            server_url (str, optional): URL of the MCP server. Defaults to None.
             server_script_path (str, optional): Path to the MCP server script. Defaults to None.
         """
-        # Store server script path
+        # Store server URL and script path
+        self.server_url = server_url or os.getenv("MCP_SERVER_URL", "http://localhost:5002")
         self.server_script_path = server_script_path or os.getenv("MCP_SERVER_SCRIPT_PATH")
-        if not self.server_script_path:
-            logging.warning("No MCP server script path provided. Please set MCP_SERVER_SCRIPT_PATH environment variable.")
         
         # Initialize LLM provider
         self.llm_provider = self._initialize_llm_provider()
@@ -206,86 +207,11 @@ class SimpleMCPClient:
         self.input_queue = queue.Queue()
         self.output_queue = queue.Queue()
         
-        # Available tools
-        self.available_tools = [
-            {
-                "name": "fetch_renewable_data",
-                "description": "Fetch data about renewable energy sources",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "energy_type": {
-                            "type": "string",
-                            "description": "Type of renewable energy (solar, wind, hydro, geothermal, biogas, etc.)"
-                        },
-                        "location": {
-                            "type": "string",
-                            "description": "Geographic location for the data"
-                        },
-                        "time_period": {
-                            "type": "string",
-                            "description": "Time period for the data (e.g., 'last_week', 'last_month', 'last_year')"
-                        }
-                    },
-                    "required": ["energy_type"]
-                }
-            },
-            {
-                "name": "create_dashboard",
-                "description": "Create a dashboard for visualizing renewable energy data",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "dashboard_type": {
-                            "type": "string",
-                            "description": "Type of dashboard to create (cbg, solar_farm, wind_farm, hybrid_plant)"
-                        },
-                        "title": {
-                            "type": "string",
-                            "description": "Title for the dashboard"
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Description of the dashboard"
-                        }
-                    },
-                    "required": ["dashboard_type", "title"]
-                }
-            },
-            {
-                "name": "calculate_roi",
-                "description": "Calculate return on investment for renewable energy projects",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "project_type": {
-                            "type": "string",
-                            "description": "Type of renewable energy project"
-                        },
-                        "initial_investment": {
-                            "type": "number",
-                            "description": "Initial investment amount in USD"
-                        },
-                        "annual_revenue": {
-                            "type": "number",
-                            "description": "Expected annual revenue in USD"
-                        },
-                        "annual_costs": {
-                            "type": "number",
-                            "description": "Expected annual maintenance and operational costs in USD"
-                        },
-                        "project_lifetime": {
-                            "type": "number",
-                            "description": "Expected lifetime of the project in years"
-                        }
-                    },
-                    "required": ["project_type", "initial_investment", "annual_revenue", "project_lifetime"]
-                }
-            }
-        ]
-        
         # Flag to indicate if the client is connected
         self.is_connected = False
+        
+        # Fetch available tools from server
+        self.available_tools = []
     
     def _initialize_llm_provider(self):
         """Initialize the LLM provider based on available APIs and environment variables"""
@@ -314,20 +240,166 @@ class SimpleMCPClient:
         Returns:
             bool: True if connection was successful, False otherwise.
         """
-        if not self.server_script_path:
-            logging.error("No MCP server script path provided.")
-            return False
-        
         try:
-            # For simplicity, we'll just use mock implementations directly
-            # instead of actually starting a server process
-            self.is_connected = True
-            logging.info(f"Connected to mock MCP server using {self.llm_provider.name} provider")
-            return True
+            # Check if server is running by making a health check request
+            response = requests.get(f"{self.server_url}/health", timeout=5)
             
-        except Exception as e:
-            logging.error(f"Error connecting to MCP server: {str(e)}")
-            return False
+            if response.status_code == 200:
+                self.is_connected = True
+                logging.info(f"Connected to MCP server at {self.server_url}")
+                
+                # Fetch available tools
+                try:
+                    tools_response = requests.get(f"{self.server_url}/tools", timeout=5)
+                    if tools_response.status_code == 200:
+                        tools_data = tools_response.json()
+                        self.available_tools = tools_data.get("tools", [])
+                        logging.info(f"Fetched {len(self.available_tools)} tools from MCP server")
+                    else:
+                        logging.warning(f"Failed to fetch tools from MCP server: {tools_response.status_code}")
+                        # Use default tools if server doesn't provide them
+                        self._set_default_tools()
+                except Exception as e:
+                    logging.warning(f"Error fetching tools from MCP server: {str(e)}")
+                    # Use default tools if server doesn't provide them
+                    self._set_default_tools()
+                
+                return True
+            else:
+                logging.error(f"MCP server health check failed with status code {response.status_code}")
+                return False
+                
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error connecting to MCP server at {self.server_url}: {str(e)}")
+            
+            # If we have a server script path, try to start the server
+            if self.server_script_path and os.path.exists(self.server_script_path):
+                try:
+                    logging.info(f"Attempting to start MCP server from {self.server_script_path}")
+                    # Start server in a separate process
+                    self.server_process = subprocess.Popen(
+                        ["python", self.server_script_path],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                    
+                    # Wait a bit for the server to start
+                    time.sleep(2)
+                    
+                    # Try connecting again
+                    try:
+                        response = requests.get(f"{self.server_url}/health", timeout=5)
+                        if response.status_code == 200:
+                            self.is_connected = True
+                            logging.info(f"Successfully started and connected to MCP server at {self.server_url}")
+                            
+                            # Fetch available tools
+                            try:
+                                tools_response = requests.get(f"{self.server_url}/tools", timeout=5)
+                                if tools_response.status_code == 200:
+                                    tools_data = tools_response.json()
+                                    self.available_tools = tools_data.get("tools", [])
+                                    logging.info(f"Fetched {len(self.available_tools)} tools from MCP server")
+                                else:
+                                    logging.warning(f"Failed to fetch tools from MCP server: {tools_response.status_code}")
+                                    # Use default tools if server doesn't provide them
+                                    self._set_default_tools()
+                            except Exception as e:
+                                logging.warning(f"Error fetching tools from MCP server: {str(e)}")
+                                # Use default tools if server doesn't provide them
+                                self._set_default_tools()
+                            
+                            return True
+                    except requests.exceptions.RequestException:
+                        logging.error("Failed to connect to MCP server after starting it")
+                
+                except Exception as e:
+                    logging.error(f"Error starting MCP server: {str(e)}")
+            
+            # If we couldn't connect to or start the server, use mock implementations
+            logging.warning("Using mock implementations for MCP tools")
+            self._set_default_tools()
+            self.is_connected = True
+            return True
+    
+    def _set_default_tools(self):
+        """Set default tools when server doesn't provide them"""
+        self.available_tools = [
+            {
+                "name": "fetch_renewable_data",
+                "description": "Fetch data about renewable energy sources",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "energy_type": {
+                            "type": "string",
+                            "description": "Type of renewable energy (solar, wind, hydro, geothermal, biogas, etc.)"
+                        },
+                        "location": {
+                            "type": "string",
+                            "description": "Geographic location for the data"
+                        },
+                        "time_period": {
+                            "type": "string",
+                            "description": "Time period for the data (e.g., 'last_week', 'last_month', 'last_year')"
+                        }
+                    },
+                    "required": ["energy_type"]
+                }
+            },
+            {
+                "name": "create_dashboard",
+                "description": "Create a dashboard for visualizing renewable energy data",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "dashboard_type": {
+                            "type": "string",
+                            "description": "Type of dashboard to create (cbg, solar_farm, wind_farm, hybrid_plant)"
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Title for the dashboard"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Description of the dashboard"
+                        }
+                    },
+                    "required": ["dashboard_type", "title"]
+                }
+            },
+            {
+                "name": "calculate_roi",
+                "description": "Calculate return on investment for renewable energy projects",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "project_type": {
+                            "type": "string",
+                            "description": "Type of renewable energy project"
+                        },
+                        "initial_investment": {
+                            "type": "number",
+                            "description": "Initial investment amount in USD"
+                        },
+                        "annual_revenue": {
+                            "type": "number",
+                            "description": "Expected annual revenue in USD"
+                        },
+                        "annual_costs": {
+                            "type": "number",
+                            "description": "Expected annual maintenance and operational costs in USD"
+                        },
+                        "project_lifetime": {
+                            "type": "number",
+                            "description": "Expected lifetime of the project in years"
+                        }
+                    },
+                    "required": ["project_type", "initial_investment", "annual_revenue", "project_lifetime"]
+                }
+            }
+        ]
     
     def process_query(self, query: str, system_prompt: str = None) -> Dict[str, Any]:
         """
@@ -379,7 +451,7 @@ class SimpleMCPClient:
                     "function": {
                         "name": tool["name"],
                         "description": tool["description"],
-                        "parameters": tool["input_schema"]
+                        "parameters": tool["inputSchema"]
                     }
                 })
             
@@ -404,7 +476,7 @@ class SimpleMCPClient:
                     tool_name = tool_call['name']
                     tool_args = tool_call['input']
                     
-                    # Execute tool call using mock implementation
+                    # Execute tool call by sending request to MCP server
                     result = self._execute_tool_call(tool_name, tool_args)
                     tool_result = f"Tool: {tool_name}\nInput: {json.dumps(tool_args)}\nOutput: {json.dumps(result)}"
                     tool_results.append(tool_result)
@@ -454,7 +526,7 @@ class SimpleMCPClient:
     
     def _execute_tool_call(self, tool_name: str, tool_args: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute a tool call using mock implementations.
+        Execute a tool call by sending a request to the MCP server.
         
         Args:
             tool_name (str): Name of the tool to call
@@ -463,171 +535,202 @@ class SimpleMCPClient:
         Returns:
             Dict[str, Any]: Result of the tool call
         """
-        import random
-        from datetime import datetime, timedelta
-        
-        if tool_name == "fetch_renewable_data":
-            energy_type = tool_args.get("energy_type", "solar")
-            location = tool_args.get("location", "global")
-            time_period = tool_args.get("time_period", "last_month")
+        try:
+            # Send request to MCP server
+            response = requests.post(
+                f"{self.server_url}/api/tool",
+                json={
+                    "tool": tool_name,
+                    "parameters": tool_args
+                },
+                timeout=10
+            )
             
-            # Generate mock data
-            end_date = datetime.now()
-            if time_period == "last_week":
-                start_date = end_date - timedelta(days=7)
-                interval = timedelta(days=1)
-            elif time_period == "last_month":
-                start_date = end_date - timedelta(days=30)
-                interval = timedelta(days=1)
-            elif time_period == "last_year":
-                start_date = end_date - timedelta(days=365)
-                interval = timedelta(days=7)
+            if response.status_code == 200:
+                return response.json()
             else:
-                start_date = end_date - timedelta(days=30)
-                interval = timedelta(days=1)
+                logging.error(f"Error executing tool call: {response.status_code} - {response.text}")
+                return {
+                    "status": "error",
+                    "message": f"Error executing tool call: {response.status_code}"
+                }
+                
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error sending request to MCP server: {str(e)}")
             
-            # Generate time series data
-            time_series = []
-            current_date = start_date
-            while current_date <= end_date:
-                # Base value depends on energy type
-                if energy_type.lower() == "solar":
-                    base_value = 100
-                    variance = 30
-                elif energy_type.lower() == "wind":
-                    base_value = 150
-                    variance = 50
-                elif energy_type.lower() == "hydro":
-                    base_value = 200
-                    variance = 20
-                elif energy_type.lower() == "geothermal":
-                    base_value = 80
-                    variance = 10
-                elif energy_type.lower() == "biogas" or energy_type.lower() == "cbg":
-                    base_value = 60
-                    variance = 15
+            # Fall back to mock implementation if server request fails
+            import random
+            from datetime import datetime, timedelta
+            
+            logging.warning(f"Falling back to mock implementation for tool: {tool_name}")
+            
+            if tool_name == "fetch_renewable_data":
+                energy_type = tool_args.get("energy_type", "solar")
+                location = tool_args.get("location", "global")
+                time_period = tool_args.get("time_period", "last_month")
+                
+                # Generate mock data
+                end_date = datetime.now()
+                if time_period == "last_week":
+                    start_date = end_date - timedelta(days=7)
+                    interval = timedelta(days=1)
+                elif time_period == "last_month":
+                    start_date = end_date - timedelta(days=30)
+                    interval = timedelta(days=1)
+                elif time_period == "last_year":
+                    start_date = end_date - timedelta(days=365)
+                    interval = timedelta(days=7)
                 else:
-                    base_value = 50
-                    variance = 20
+                    start_date = end_date - timedelta(days=30)
+                    interval = timedelta(days=1)
                 
-                # Add random variation
-                value = base_value + random.uniform(-variance, variance)
+                # Generate time series data
+                time_series = []
+                current_date = start_date
+                while current_date <= end_date:
+                    # Base value depends on energy type
+                    if energy_type.lower() == "solar":
+                        base_value = 100
+                        variance = 30
+                    elif energy_type.lower() == "wind":
+                        base_value = 150
+                        variance = 50
+                    elif energy_type.lower() == "hydro":
+                        base_value = 200
+                        variance = 20
+                    elif energy_type.lower() == "geothermal":
+                        base_value = 80
+                        variance = 10
+                    elif energy_type.lower() == "biogas" or energy_type.lower() == "cbg":
+                        base_value = 60
+                        variance = 15
+                    else:
+                        base_value = 50
+                        variance = 20
+                    
+                    # Add random variation
+                    value = base_value + random.uniform(-variance, variance)
+                    
+                    time_series.append({
+                        "timestamp": current_date.isoformat(),
+                        "value": round(max(0, value), 2)
+                    })
+                    
+                    current_date += interval
                 
-                time_series.append({
-                    "timestamp": current_date.isoformat(),
-                    "value": round(max(0, value), 2)
-                })
+                # Create data structure based on energy type
+                data = {}
+                if energy_type.lower() == "solar":
+                    data = {
+                        "generation": time_series,
+                        "capacity": random.uniform(500, 2000),
+                        "efficiency": random.uniform(0.15, 0.25),
+                        "panel_count": random.randint(1000, 5000)
+                    }
+                elif energy_type.lower() == "wind":
+                    data = {
+                        "generation": time_series,
+                        "capacity": random.uniform(800, 3000),
+                        "turbine_count": random.randint(10, 50),
+                        "average_wind_speed": random.uniform(5, 15)
+                    }
+                elif energy_type.lower() == "biogas" or energy_type.lower() == "cbg":
+                    data = {
+                        "generation": time_series,
+                        "feedstock": {
+                            "organic_waste": random.uniform(100, 500),
+                            "agricultural_waste": random.uniform(50, 300),
+                            "food_waste": random.uniform(30, 200)
+                        },
+                        "methane_content": random.uniform(50, 70),
+                        "community_participants": random.randint(5, 50)
+                    }
+                else:
+                    data = {
+                        "generation": time_series,
+                        "capacity": random.uniform(300, 1500),
+                        "efficiency": random.uniform(0.1, 0.4)
+                    }
                 
-                current_date += interval
+                return {
+                    "status": "success",
+                    "energy_type": energy_type,
+                    "location": location,
+                    "time_period": time_period,
+                    "data": data,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+            elif tool_name == "create_dashboard":
+                dashboard_type = tool_args.get("dashboard_type", "cbg")
+                title = tool_args.get("title", f"Renewable Energy Dashboard - {dashboard_type.upper()}")
+                description = tool_args.get("description", f"Dashboard for {dashboard_type} data visualization")
+                
+                # Generate a unique dashboard ID
+                dashboard_id = f"{dashboard_type}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                
+                return {
+                    "status": "success",
+                    "dashboard_id": dashboard_id,
+                    "dashboard_type": dashboard_type,
+                    "title": title,
+                    "description": description,
+                    "url": f"/dashboards/{dashboard_id}",
+                    "created_at": datetime.now().isoformat(),
+                    "message": f"Dashboard '{title}' created successfully"
+                }
+                
+            elif tool_name == "calculate_roi":
+                project_type = tool_args.get("project_type", "solar")
+                initial_investment = tool_args.get("initial_investment", 100000)
+                annual_revenue = tool_args.get("annual_revenue", 20000)
+                annual_costs = tool_args.get("annual_costs", 5000)
+                project_lifetime = tool_args.get("project_lifetime", 25)
+                
+                # Calculate net annual cash flow
+                net_annual_cash_flow = annual_revenue - annual_costs
+                
+                # Calculate simple payback period
+                payback_period = initial_investment / net_annual_cash_flow if net_annual_cash_flow > 0 else float('inf')
+                
+                # Calculate total profit over lifetime
+                total_profit = (net_annual_cash_flow * project_lifetime) - initial_investment
+                
+                # Calculate ROI
+                roi = (total_profit / initial_investment) * 100
+                
+                # Calculate IRR (simplified)
+                irr = (net_annual_cash_flow / initial_investment) * 100
+                
+                return {
+                    "status": "success",
+                    "project_type": project_type,
+                    "initial_investment": initial_investment,
+                    "annual_revenue": annual_revenue,
+                    "annual_costs": annual_costs,
+                    "project_lifetime": project_lifetime,
+                    "net_annual_cash_flow": net_annual_cash_flow,
+                    "payback_period_years": round(payback_period, 2),
+                    "total_profit": round(total_profit, 2),
+                    "roi_percentage": round(roi, 2),
+                    "estimated_irr_percentage": round(irr, 2),
+                    "analysis_timestamp": datetime.now().isoformat()
+                }
             
-            # Create data structure based on energy type
-            data = {}
-            if energy_type.lower() == "solar":
-                data = {
-                    "generation": time_series,
-                    "capacity": random.uniform(500, 2000),
-                    "efficiency": random.uniform(0.15, 0.25),
-                    "panel_count": random.randint(1000, 5000)
-                }
-            elif energy_type.lower() == "wind":
-                data = {
-                    "generation": time_series,
-                    "capacity": random.uniform(800, 3000),
-                    "turbine_count": random.randint(10, 50),
-                    "average_wind_speed": random.uniform(5, 15)
-                }
-            elif energy_type.lower() == "biogas" or energy_type.lower() == "cbg":
-                data = {
-                    "generation": time_series,
-                    "feedstock": {
-                        "organic_waste": random.uniform(100, 500),
-                        "agricultural_waste": random.uniform(50, 300),
-                        "food_waste": random.uniform(30, 200)
-                    },
-                    "methane_content": random.uniform(50, 70),
-                    "community_participants": random.randint(5, 50)
-                }
             else:
-                data = {
-                    "generation": time_series,
-                    "capacity": random.uniform(300, 1500),
-                    "efficiency": random.uniform(0.1, 0.4)
+                return {
+                    "status": "error",
+                    "message": f"Unknown tool: {tool_name}"
                 }
-            
-            return {
-                "status": "success",
-                "energy_type": energy_type,
-                "location": location,
-                "time_period": time_period,
-                "data": data,
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        elif tool_name == "create_dashboard":
-            dashboard_type = tool_args.get("dashboard_type", "cbg")
-            title = tool_args.get("title", f"Renewable Energy Dashboard - {dashboard_type.upper()}")
-            description = tool_args.get("description", f"Dashboard for {dashboard_type} data visualization")
-            
-            # Generate a unique dashboard ID
-            dashboard_id = f"{dashboard_type}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            
-            return {
-                "status": "success",
-                "dashboard_id": dashboard_id,
-                "dashboard_type": dashboard_type,
-                "title": title,
-                "description": description,
-                "url": f"/dashboards/{dashboard_id}",
-                "created_at": datetime.now().isoformat(),
-                "message": f"Dashboard '{title}' created successfully"
-            }
-            
-        elif tool_name == "calculate_roi":
-            project_type = tool_args.get("project_type", "solar")
-            initial_investment = tool_args.get("initial_investment", 100000)
-            annual_revenue = tool_args.get("annual_revenue", 20000)
-            annual_costs = tool_args.get("annual_costs", 5000)
-            project_lifetime = tool_args.get("project_lifetime", 25)
-            
-            # Calculate net annual cash flow
-            net_annual_cash_flow = annual_revenue - annual_costs
-            
-            # Calculate simple payback period
-            payback_period = initial_investment / net_annual_cash_flow if net_annual_cash_flow > 0 else float('inf')
-            
-            # Calculate total profit over lifetime
-            total_profit = (net_annual_cash_flow * project_lifetime) - initial_investment
-            
-            # Calculate ROI
-            roi = (total_profit / initial_investment) * 100
-            
-            # Calculate IRR (simplified)
-            irr = (net_annual_cash_flow / initial_investment) * 100
-            
-            return {
-                "status": "success",
-                "project_type": project_type,
-                "initial_investment": initial_investment,
-                "annual_revenue": annual_revenue,
-                "annual_costs": annual_costs,
-                "project_lifetime": project_lifetime,
-                "net_annual_cash_flow": net_annual_cash_flow,
-                "payback_period_years": round(payback_period, 2),
-                "total_profit": round(total_profit, 2),
-                "roi_percentage": round(roi, 2),
-                "estimated_irr_percentage": round(irr, 2),
-                "analysis_timestamp": datetime.now().isoformat()
-            }
-        
-        else:
-            return {
-                "status": "error",
-                "message": f"Unknown tool: {tool_name}"
-            }
     
     def cleanup(self):
         """Clean up resources"""
         try:
+            # Stop server process if we started it
+            if self.server_process:
+                self.server_process.terminate()
+                self.server_process = None
+            
             self.is_connected = False
             logging.info("MCP client resources cleaned up")
         except Exception as e:
