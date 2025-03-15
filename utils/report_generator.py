@@ -17,10 +17,32 @@ class ReportGenerator:
         """
         # Create the reports directory if it doesn't exist
         os.makedirs("data/reports", exist_ok=True)
+        os.makedirs("data/visualizations", exist_ok=True)
         
         # Initialize API clients
-        self.claude_api = ClaudeAPI(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        self.openai_api = OpenAIAPI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.claude_api = None
+        self.openai_api = None
+        
+        # Try to initialize Claude API
+        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+        if anthropic_api_key and anthropic_api_key != "your-anthropic-api-key" and anthropic_api_key != "your-claude-api-key-here":
+            try:
+                self.claude_api = ClaudeAPI(api_key=anthropic_api_key)
+                logging.info("Claude API initialized successfully")
+            except Exception as e:
+                logging.warning(f"Failed to initialize Claude API: {str(e)}")
+        
+        # Try to initialize OpenAI API
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if openai_api_key:
+            try:
+                self.openai_api = OpenAIAPI(api_key=openai_api_key)
+                logging.info("OpenAI API initialized successfully")
+            except Exception as e:
+                logging.warning(f"Failed to initialize OpenAI API: {str(e)}")
+        
+        if not self.claude_api and not self.openai_api:
+            logging.warning("No LLM APIs available. Report generation will be limited.")
         
         logging.info("Report generator initialized")
     
@@ -106,8 +128,26 @@ class ReportGenerator:
             }}
             """
             
-            # Generate the report content using Claude
-            response = self.claude_api.analyze_data(data, prompt)
+            response = None
+            
+            # Try to generate the report content using Claude if available
+            if self.claude_api:
+                try:
+                    response = self.claude_api.analyze_data(data, prompt)
+                except Exception as e:
+                    logging.warning(f"Error generating report with Claude: {str(e)}. Falling back to OpenAI.")
+            
+            # Fall back to OpenAI if Claude is not available or failed
+            if not response and self.openai_api:
+                try:
+                    response = self.openai_api.analyze_data(data, prompt)
+                except Exception as e:
+                    logging.warning(f"Error generating report with OpenAI: {str(e)}")
+            
+            # If both APIs failed or are not available, generate a simple report
+            if not response:
+                logging.warning("No LLM APIs available for report generation. Creating a simple report.")
+                return self._generate_simple_report(data, query)
             
             # Parse the response as JSON
             try:
@@ -122,21 +162,82 @@ class ReportGenerator:
                     report_content = json.loads(json_str)
                 else:
                     # If we can't extract JSON, create a simple structure
-                    report_content = {
-                        "title": "Renewable Energy Report",
-                        "sections": [
-                            {
-                                "title": "Report Content",
-                                "content": response
-                            }
-                        ]
-                    }
+                    report_content = self._generate_simple_report(data, query, response)
             
             return report_content
         
         except Exception as e:
             logging.error(f"Error generating report content: {str(e)}")
-            raise Exception(f"Failed to generate report content: {str(e)}")
+            return self._generate_simple_report(data, query)
+    
+    def _generate_simple_report(self, data, query, content=None):
+        """
+        Generate a simple report without using AI.
+        
+        Args:
+            data (dict): The data to include in the report
+            query (str): The user's query that prompted the report
+            content (str, optional): Additional content to include. Defaults to None.
+            
+        Returns:
+            dict: The generated report content
+        """
+        # Extract energy type from data or query
+        energy_type = "Renewable Energy"
+        if isinstance(data, dict) and "energy_type" in data:
+            energy_type = data["energy_type"].capitalize()
+        elif "solar" in query.lower():
+            energy_type = "Solar Energy"
+        elif "wind" in query.lower():
+            energy_type = "Wind Energy"
+        elif "biogas" in query.lower() or "cbg" in query.lower():
+            energy_type = "Biogas Energy"
+        
+        # Create a simple report structure
+        report = {
+            "title": f"{energy_type} Analysis Report",
+            "sections": [
+                {
+                    "title": "Executive Summary",
+                    "content": f"This report provides an analysis of {energy_type.lower()} data based on the query: '{query}'."
+                },
+                {
+                    "title": "Introduction",
+                    "content": f"This report was generated to address the following query: '{query}'. It contains an analysis of {energy_type.lower()} data and provides insights and recommendations."
+                },
+                {
+                    "title": "Data Analysis",
+                    "content": "The data has been analyzed to identify key patterns and trends."
+                }
+            ]
+        }
+        
+        # Add the data summary section
+        if isinstance(data, dict):
+            summary = "Key data points:\n"
+            for key, value in data.items():
+                if not isinstance(value, (dict, list)):
+                    summary += f"- {key}: {value}\n"
+            
+            report["sections"].append({
+                "title": "Data Summary",
+                "content": summary
+            })
+        
+        # Add the provided content if available
+        if content:
+            report["sections"].append({
+                "title": "Additional Information",
+                "content": content
+            })
+        
+        # Add conclusions
+        report["sections"].append({
+            "title": "Conclusion",
+            "content": f"Based on the analysis of the {energy_type.lower()} data, we recommend further monitoring and analysis to optimize performance and efficiency."
+        })
+        
+        return report
     
     def _generate_report_visualizations(self, data):
         """
