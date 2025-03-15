@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     make \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
@@ -23,18 +24,24 @@ RUN poetry config virtualenvs.create false
 COPY pyproject.toml poetry.lock ./
 
 # Install dependencies
-RUN poetry install --no-interaction --no-ansi --no-root
+RUN poetry install --no-interaction --no-ansi --no-root --no-dev
+
+# Create necessary directories
+RUN mkdir -p /app/data/reports /app/data/visualizations /app/data/vector_store
 
 # Copy application code
 COPY . .
 
+# Make the server script executable
+RUN chmod +x /app/mcp_server/server.py
+
 # Set environment variables
-ENV QUART_APP=mcp_server.server:app
-ENV QUART_ENV=production
 ENV PYTHONPATH=/app
+ENV TOKENIZERS_PARALLELISM=false
+ENV MCP_SERVER_SCRIPT_PATH=/app/mcp_server/server.py
 
 # Expose port
 EXPOSE 5002
 
-# Run the application with Hypercorn
-CMD ["poetry", "run", "hypercorn", "--bind", "0.0.0.0:5002", "mcp_server.server:app"] 
+# Run the MCP server script directly
+CMD ["poetry", "run", "python", "/app/mcp_server/server.py"] 

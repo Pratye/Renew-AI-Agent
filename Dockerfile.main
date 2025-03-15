@@ -7,6 +7,10 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
+    gcc \
+    g++ \
+    make \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
@@ -20,7 +24,10 @@ RUN poetry config virtualenvs.create false
 COPY pyproject.toml poetry.lock ./
 
 # Install dependencies
-RUN poetry install --no-interaction --no-ansi --no-root
+RUN poetry install --no-interaction --no-ansi --no-root --no-dev
+
+# Create necessary directories
+RUN mkdir -p /app/data/reports /app/data/visualizations /app/data/vector_store /app/static/dashboards
 
 # Copy application code
 COPY . .
@@ -30,9 +37,10 @@ ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
 ENV PYTHONPATH=/app
 ENV EVENTLET_NO_GREENDNS=yes
+ENV TOKENIZERS_PARALLELISM=false
 
 # Expose port
 EXPOSE 5000
 
-# Run the application with eventlet
-CMD ["poetry", "run", "python", "-m", "flask", "run", "--host=0.0.0.0", "--port=5000"] 
+# Run the application with gunicorn
+CMD ["poetry", "run", "gunicorn", "--worker-class", "eventlet", "--workers", "1", "--bind", "0.0.0.0:5000", "app:app"] 

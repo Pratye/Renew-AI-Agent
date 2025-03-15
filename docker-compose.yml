@@ -6,27 +6,31 @@ services:
       context: .
       dockerfile: Dockerfile.main
     ports:
-      - "5001:5000"
-      - "8001:8000"  # WebSocket port
+      - "5000:5000"
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017/
       - MCP_SERVER_URL=http://mcp-server:5002
+      - MCP_SERVER_SCRIPT_PATH=/app/mcp_server/server.py
       - MCP_CLIENT_ID=renewable_energy_app
       - MCP_CLIENT_SECRET=mcp_secret_2024_renewable_energy_consultant_secure
       - FLASK_APP=app.py
-      - FLASK_ENV=production
+      - FLASK_ENV=development
+      - FLASK_DEBUG=true
       - EVENTLET_NO_GREENDNS=yes
+      - TOKENIZERS_PARALLELISM=false
       # LLM Provider Configuration
-      - OPENAI_API_KEY=${OPENAI_API_KEY}  # OpenAI API key
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL}  # Optional: For Groq or Ollama
-      - OPENAI_MODEL=${OPENAI_MODEL}  # Optional: Specify model
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}  # Optional: Claude API key
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-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}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.groq.com/openai/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-mixtral-8x7b-32768}
+      # Vector Store Configuration
+      - VECTOR_STORE_PATH=/app/data/vector_store
+      # JWT Configuration
+      - JWT_SECRET_KEY=renewable_energy_consultant_secret_key_2024
+      - JWT_ACCESS_TOKEN_EXPIRES=604800
     depends_on:
-      - mongodb
       - mcp-server
     volumes:
-      - .:/app
-      - vector_store:/app/data/vector_store
+      - ./data:/app/data
+      - ./static:/app/static
     networks:
       - app-network
 
@@ -37,27 +41,20 @@ services:
     ports:
       - "5002:5002"
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017/
       - ALLOWED_CLIENT_ID=renewable_energy_app
       - ALLOWED_CLIENT_SECRET=mcp_secret_2024_renewable_energy_consultant_secure
-      # External Data Source API Keys
-      - EIA_API_KEY=${EIA_API_KEY}
-      - SOLARGIS_API_KEY=${SOLARGIS_API_KEY}
-      - WINDEUROPE_API_KEY=${WINDEUROPE_API_KEY}
-    depends_on:
-      - mongodb
+      - MCP_SERVER_SCRIPT_PATH=/app/mcp_server/server.py
+      - TOKENIZERS_PARALLELISM=false
+      # LLM Provider Configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-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}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.groq.com/openai/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-mixtral-8x7b-32768}
+      # External Data Source API Keys (using mock keys)
+      - EIA_API_KEY=mock_eia_api_key
+      - SOLARGIS_API_KEY=mock_solargis_api_key
+      - WINDEUROPE_API_KEY=mock_windeurope_api_key
     volumes:
-      - .:/app
-      - vector_store:/app/data/vector_store
-    networks:
-      - app-network
-
-  mongodb:
-    image: mongo:latest
-    ports:
-      - "27018:27017"
-    volumes:
-      - mongodb_data:/data/db
+      - ./data:/app/data
     networks:
       - app-network
 

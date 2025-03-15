@@ -1,142 +1,127 @@
 # Renewable Energy Consultant
 
-A comprehensive application for renewable energy analysis and monitoring, featuring real-time data integration, interactive dashboards, and AI-powered insights.
+An AI-powered renewable energy consultant with dashboard creation capabilities.
 
 ## Features
 
-- Real-time renewable energy data monitoring
-- Interactive dashboards with multiple visualization types
-- AI-powered analysis and recommendations
-- Public dashboard sharing
-- User authentication and management
-- Auto-refresh capabilities
-- Support for multiple data sources (EIA, SolarGIS, WindEurope)
+- Interactive chat interface for renewable energy consulting
+- Automatic dashboard creation based on user queries
+- Support for various renewable energy types (solar, wind, biogas, etc.)
+- ROI calculations for renewable energy projects
+- Data visualization and analysis
+- Vector database for enhanced question answering
 
-## Docker Deployment
+## Architecture
 
-### Prerequisites
+The application consists of two main components:
 
-- Docker
-- Docker Compose
-- API keys for the following services:
-  - OpenAI/GroQ/Claude (at least one)
-  - EIA
-  - SolarGIS
-  - WindEurope
+1. **Flask Web Application**: Provides the user interface and handles user interactions
+2. **MCP Server**: Handles AI processing and tool execution
 
-### Quick Start
+## Prerequisites
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Pratye/Renew-AI-Agent.git
-   cd Renew-AI-Agent
-   ```
+- Docker and Docker Compose
+- GroQ API key (or other OpenAI-compatible API)
 
-2. Create your environment file:
-   ```bash
-   cp .env.example .env
-   ```
+## Running with Docker
 
-3. Edit the `.env` file with your API keys and configuration:
-   ```bash
-   nano .env
-   ```
+### 1. Clone the repository
 
-4. Build and start the services:
-   ```bash
-   docker-compose up -d
-   ```
+```bash
+git clone https://github.com/yourusername/renewable-energy-consultant.git
+cd renewable-energy-consultant
+```
 
-The application will be available at `http://localhost:5001`
+### 2. Set up environment variables
 
-### Docker Commands
+Create a `.env` file in the root directory with your API keys:
 
-- Start the services:
-  ```bash
-  docker-compose up -d
-  ```
+```
+OPENAI_API_KEY=your_groq_api_key_here
+OPENAI_BASE_URL=https://api.groq.com/openai/v1
+OPENAI_MODEL=mixtral-8x7b-32768
+```
 
-- View logs:
-  ```bash
-  docker-compose logs -f
-  ```
+### 3. Build and run with Docker Compose
 
-- Stop the services:
-  ```bash
-  docker-compose down
-  ```
+```bash
+docker-compose up --build
+```
 
-- Rebuild and restart services:
-  ```bash
-  docker-compose up -d --build
-  ```
+This will start both the Flask web application and the MCP server.
 
-- Remove all containers and volumes:
-  ```bash
-  docker-compose down -v
-  ```
+### 4. Access the application
 
-### Environment Variables
+Open your browser and navigate to:
 
-Required environment variables in `.env`:
+```
+http://localhost:5000
+```
 
-- `JWT_SECRET_KEY`: Secret key for JWT token generation
-- `OPENAI_API_KEY`: OpenAI API key (optional if using GroQ or Claude)
-- `GROQ_API_KEY`: GroQ API key (optional if using OpenAI or Claude)
-- `CLAUDE_API_KEY`: Claude API key (optional if using OpenAI or GroQ)
-- `EIA_API_KEY`: EIA API key for energy data
-- `SOLARGIS_API_KEY`: SolarGIS API key for solar data
-- `WINDEUROPE_API_KEY`: WindEurope API key for wind data
+## Development Setup
 
-### Persistence
+If you want to run the application locally for development:
 
-- MongoDB data is persisted in a Docker volume named `mongodb_data`
-- Application code is mounted as a volume for development purposes
+### 1. Install Poetry
 
-### Security Notes
+```bash
+curl -sSL https://install.python-poetry.org | python3 -
+```
 
-- Never commit your `.env` file
-- Use strong passwords for MongoDB in production
-- Consider using Docker secrets for sensitive data in production
-- Restrict MongoDB access in production environments
+### 2. Install dependencies
 
-## Development
+```bash
+poetry install
+```
 
-To run the application in development mode:
+### 3. Update the `.env` file
 
-1. Create and activate a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # Linux/Mac
-   # or
-   .\venv\Scripts\activate  # Windows
-   ```
+Make sure your `.env` file has the correct configuration:
 
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   pip install -r mcp_server/requirements.txt
-   ```
+```
+# LLM Provider Configuration
+OPENAI_API_KEY=your_groq_api_key_here
+OPENAI_BASE_URL=https://api.groq.com/openai/v1
+OPENAI_MODEL=mixtral-8x7b-32768
 
-3. Set up environment variables:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
+# MCP Server Configuration
+MCP_SERVER_URL=http://localhost:5002
+MCP_SERVER_SCRIPT_PATH=/path/to/mcp_server/server.py
+MCP_CLIENT_ID=renewable_energy_app
+MCP_CLIENT_SECRET=mcp_secret_2024_renewable_energy_consultant_secure
 
-4. Run the application:
-   ```bash
-   python -m flask run --host=0.0.0.0 --port=5001
-   ```
+# Flask Configuration
+FLASK_APP=app.py
+FLASK_ENV=development
+FLASK_DEBUG=True
+```
 
-## Contributing
+### 4. Run the MCP server
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+```bash
+python mcp_server/server.py
+```
+
+### 5. Run the Flask application
+
+```bash
+python app.py
+```
+
+## Usage
+
+1. Open the web interface
+2. Ask questions about renewable energy
+3. Request dashboards for specific energy types
+4. Analyze ROI for renewable energy projects
+
+## Examples
+
+- "Create a dashboard for a solar farm in California"
+- "What's the ROI for a wind farm with an initial investment of $2M?"
+- "Compare efficiency between solar and wind energy"
+- "Generate a report on biogas production from agricultural waste"
 
 ## License
 
-[MIT License](LICENSE) 
+MIT 
