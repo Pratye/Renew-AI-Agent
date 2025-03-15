@@ -23,8 +23,8 @@ RUN poetry config virtualenvs.create false
 # Copy Poetry files
 COPY pyproject.toml poetry.lock ./
 
-# Install dependencies
-RUN poetry install --no-interaction --no-ansi --no-root --no-dev
+# Install dependencies (without dev dependencies)
+RUN poetry install --no-interaction --no-ansi --no-root --without dev
 
 # Create necessary directories
 RUN mkdir -p /app/data/reports /app/data/visualizations /app/data/vector_store

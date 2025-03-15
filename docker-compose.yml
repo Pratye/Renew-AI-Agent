@@ -62,6 +62,3 @@ networks:
   app-network:
     driver: bridge
 
-volumes:
-  mongodb_data:
-  vector_store: 
