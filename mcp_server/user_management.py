@@ -1,5 +1,4 @@
-from pymongo import MongoClient
-from werkzeug.security import generate_password_hash, check_password_hash
+import hashlib
 import jwt
 import datetime
 import os
@@ -7,37 +6,55 @@ from typing import Dict, Any, Optional, List
 import logging
 import uuid
 
+def simple_hash(password: str) -> str:
+    """Simple password hashing using SHA-256"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def check_password(hashed_password: str, password: str) -> bool:
+    """Check if password matches the hash"""
+    return hashed_password == simple_hash(password)
+
 class UserManager:
     def __init__(self):
-        """Initialize UserManager with MongoDB connection"""
-        mongo_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/')
-        self.client = MongoClient(mongo_uri)
-        self.db = self.client['renewable_energy_consultant']
+        """Initialize UserManager with in-memory storage"""
+        # In-memory storage
+        self.users = {}
+        self.chat_history = {}
+        self.dashboards = {}
         
-        # Collections
-        self.users = self.db['users']
-        self.chat_history = self.db['chat_history']
-        self.dashboards = self.db['dashboards']
+        # Create a default admin user
+        default_user_id = str(uuid.uuid4())
+        self.users[default_user_id] = {
+            '_id': default_user_id,
+            'username': 'admin',
+            'email': 'admin@example.com',
+            'password': simple_hash('admin'),
+            'created_at': datetime.datetime.now(),
+            'last_login': None,
+            'preferences': {
+                'default_dashboard_type': 'cbg',
+                'auto_refresh': True,
+                'refresh_interval': 300
+            }
+        }
         
-        # Create indexes
-        self.users.create_index('email', unique=True)
-        self.users.create_index('username', unique=True)
-        self.chat_history.create_index([('user_id', 1), ('timestamp', -1)])
-        self.dashboards.create_index([('user_id', 1), ('created_at', -1)])
-        self.dashboards.create_index('is_public')  # Add index for public dashboards
+        logging.info("UserManager initialized with in-memory storage")
     
     def register_user(self, username: str, email: str, password: str) -> Dict[str, Any]:
         """Register a new user"""
         try:
             # Check if user already exists
-            if self.users.find_one({'$or': [{'email': email}, {'username': username}]}):
-                raise ValueError('Username or email already exists')
+            for user in self.users.values():
+                if user['email'] == email or user['username'] == username:
+                    raise ValueError('Username or email already exists')
             
             # Create user document
+            user_id = str(uuid.uuid4())
             user = {
+                '_id': user_id,
                 'username': username,
                 'email': email,
-                'password': generate_password_hash(password),
+                'password': simple_hash(password),
                 'created_at': datetime.datetime.now(),
                 'last_login': None,
                 'preferences': {
@@ -47,8 +64,7 @@ class UserManager:
                 }
             }
             
-            result = self.users.insert_one(user)
-            user['_id'] = result.inserted_id
+            self.users[user_id] = user
             
             return self.generate_auth_token(user)
             
@@ -59,15 +75,17 @@ class UserManager:
     def login_user(self, email: str, password: str) -> Dict[str, Any]:
         """Login a user"""
         try:
-            user = self.users.find_one({'email': email})
-            if not user or not check_password_hash(user['password'], password):
+            user = None
+            for u in self.users.values():
+                if u['email'] == email:
+                    user = u
+                    break
+                    
+            if not user or not check_password(user['password'], password):
                 raise ValueError('Invalid email or password')
             
             # Update last login
-            self.users.update_one(
-                {'_id': user['_id']},
-                {'$set': {'last_login': datetime.datetime.now()}}
-            )
+            user['last_login'] = datetime.datetime.now()
             
             return self.generate_auth_token(user)
             
@@ -106,8 +124,8 @@ class UserManager:
                 algorithms=['HS256']
             )
             
-            user = self.users.find_one({'_id': payload['user_id']})
-            return user if user else None
+            user_id = payload['user_id']
+            return self.users.get(user_id)
             
         except jwt.ExpiredSignatureError:
             raise ValueError('Token has expired')
@@ -117,14 +135,20 @@ class UserManager:
     def save_chat_history(self, user_id: str, messages: List[Dict[str, Any]]) -> str:
         """Save chat history for a user"""
         try:
+            chat_id = str(uuid.uuid4())
+            
+            if user_id not in self.chat_history:
+                self.chat_history[user_id] = []
+                
             chat_session = {
+                '_id': chat_id,
                 'user_id': user_id,
                 'messages': messages,
                 'timestamp': datetime.datetime.now()
             }
             
-            result = self.chat_history.insert_one(chat_session)
-            return str(result.inserted_id)
+            self.chat_history[user_id].append(chat_session)
+            return chat_id
             
         except Exception as e:
             logging.error(f"Error saving chat history: {str(e)}")
@@ -133,12 +157,18 @@ class UserManager:
     def get_chat_history(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Get chat history for a user"""
         try:
-            return list(
-                self.chat_history.find(
-                    {'user_id': user_id},
-                    {'messages': 1, 'timestamp': 1}
-                ).sort('timestamp', -1).limit(limit)
+            if user_id not in self.chat_history:
+                return []
+                
+            # Sort by timestamp and limit
+            history = sorted(
+                self.chat_history[user_id],
+                key=lambda x: x['timestamp'],
+                reverse=True
             )
+            
+            return history[:limit]
+            
         except Exception as e:
             logging.error(f"Error getting chat history: {str(e)}")
             raise
@@ -146,17 +176,24 @@ class UserManager:
     def save_dashboard(self, user_id: str, dashboard: Dict[str, Any]) -> str:
         """Save dashboard for a user"""
         try:
+            dashboard_id = str(uuid.uuid4())
+            
+            if user_id not in self.dashboards:
+                self.dashboards[user_id] = {}
+                
+            dashboard['_id'] = dashboard_id
             dashboard['user_id'] = user_id
             dashboard['is_public'] = dashboard.get('is_public', False)
             dashboard['public_url'] = None
+            dashboard['created_at'] = datetime.datetime.now()
             
             if dashboard['is_public']:
                 # Generate a public URL token
                 public_token = str(uuid.uuid4())
                 dashboard['public_url'] = f"/public/dashboards/{public_token}"
             
-            result = self.dashboards.insert_one(dashboard)
-            return str(result.inserted_id)
+            self.dashboards[user_id][dashboard_id] = dashboard
+            return dashboard_id
             
         except Exception as e:
             logging.error(f"Error saving dashboard: {str(e)}")
@@ -165,10 +202,17 @@ class UserManager:
     def get_user_dashboards(self, user_id: str) -> List[Dict[str, Any]]:
         """Get all dashboards for a user"""
         try:
-            return list(
-                self.dashboards.find({'user_id': user_id})
-                .sort('created_at', -1)
+            if user_id not in self.dashboards:
+                return []
+                
+            # Sort by created_at
+            dashboards = list(self.dashboards[user_id].values())
+            return sorted(
+                dashboards,
+                key=lambda x: x['created_at'],
+                reverse=True
             )
+            
         except Exception as e:
             logging.error(f"Error getting user dashboards: {str(e)}")
             raise
@@ -176,7 +220,11 @@ class UserManager:
     def get_dashboard(self, dashboard_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific dashboard"""
         try:
-            return self.dashboards.find_one({'_id': dashboard_id})
+            for user_dashboards in self.dashboards.values():
+                if dashboard_id in user_dashboards:
+                    return user_dashboards[dashboard_id]
+            return None
+            
         except Exception as e:
             logging.error(f"Error getting dashboard: {str(e)}")
             raise
@@ -184,11 +232,12 @@ class UserManager:
     def delete_dashboard(self, user_id: str, dashboard_id: str) -> bool:
         """Delete a dashboard"""
         try:
-            result = self.dashboards.delete_one({
-                '_id': dashboard_id,
-                'user_id': user_id
-            })
-            return result.deleted_count > 0
+            if user_id not in self.dashboards or dashboard_id not in self.dashboards[user_id]:
+                return False
+                
+            del self.dashboards[user_id][dashboard_id]
+            return True
+            
         except Exception as e:
             logging.error(f"Error deleting dashboard: {str(e)}")
             raise
@@ -196,11 +245,12 @@ class UserManager:
     def update_user_preferences(self, user_id: str, preferences: Dict[str, Any]) -> bool:
         """Update user preferences"""
         try:
-            result = self.users.update_one(
-                {'_id': user_id},
-                {'$set': {'preferences': preferences}}
-            )
-            return result.modified_count > 0
+            if user_id not in self.users:
+                return False
+                
+            self.users[user_id]['preferences'] = preferences
+            return True
+            
         except Exception as e:
             logging.error(f"Error updating user preferences: {str(e)}")
             raise
@@ -208,10 +258,15 @@ class UserManager:
     def get_public_dashboard(self, public_token: str) -> Optional[Dict[str, Any]]:
         """Get a public dashboard by its token"""
         try:
-            return self.dashboards.find_one({
-                'public_url': f"/public/dashboards/{public_token}",
-                'is_public': True
-            })
+            public_url = f"/public/dashboards/{public_token}"
+            
+            for user_dashboards in self.dashboards.values():
+                for dashboard in user_dashboards.values():
+                    if dashboard.get('public_url') == public_url and dashboard.get('is_public'):
+                        return dashboard
+            
+            return None
+            
         except Exception as e:
             logging.error(f"Error getting public dashboard: {str(e)}")
             raise
@@ -219,52 +274,45 @@ class UserManager:
     def set_dashboard_visibility(self, user_id: str, dashboard_id: str, is_public: bool) -> Dict[str, Any]:
         """Set dashboard visibility (public/private)"""
         try:
-            dashboard = self.dashboards.find_one({
-                '_id': dashboard_id,
-                'user_id': user_id
-            })
-            
-            if not dashboard:
+            if user_id not in self.dashboards or dashboard_id not in self.dashboards[user_id]:
                 raise ValueError('Dashboard not found')
-            
-            update_data = {'is_public': is_public}
+                
+            dashboard = self.dashboards[user_id][dashboard_id]
+            dashboard['is_public'] = is_public
             
             if is_public and not dashboard.get('public_url'):
                 # Generate public URL if making public
                 public_token = str(uuid.uuid4())
-                update_data['public_url'] = f"/public/dashboards/{public_token}"
+                dashboard['public_url'] = f"/public/dashboards/{public_token}"
             elif not is_public:
                 # Remove public URL if making private
-                update_data['public_url'] = None
+                dashboard['public_url'] = None
             
-            self.dashboards.update_one(
-                {'_id': dashboard_id},
-                {'$set': update_data}
-            )
-            
-            # Return updated dashboard
-            return self.dashboards.find_one({'_id': dashboard_id})
+            return dashboard
             
         except Exception as e:
             logging.error(f"Error setting dashboard visibility: {str(e)}")
             raise
     
     def get_public_dashboards(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get list of public dashboards"""
+        """Get all public dashboards"""
         try:
-            return list(
-                self.dashboards.find(
-                    {'is_public': True},
-                    {
-                        'title': 1,
-                        'description': 1,
-                        'type': 1,
-                        'public_url': 1,
-                        'created_at': 1,
-                        'updated_at': 1
-                    }
-                ).sort('created_at', -1).limit(limit)
+            public_dashboards = []
+            
+            for user_dashboards in self.dashboards.values():
+                for dashboard in user_dashboards.values():
+                    if dashboard.get('is_public'):
+                        public_dashboards.append(dashboard)
+            
+            # Sort by created_at
+            public_dashboards = sorted(
+                public_dashboards,
+                key=lambda x: x['created_at'],
+                reverse=True
             )
+            
+            return public_dashboards[:limit]
+            
         except Exception as e:
             logging.error(f"Error getting public dashboards: {str(e)}")
             raise 

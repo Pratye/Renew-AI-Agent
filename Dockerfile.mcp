@@ -34,7 +34,7 @@ ENV QUART_ENV=production
 ENV PYTHONPATH=/app
 
 # Expose port
-EXPOSE 5001
+EXPOSE 5002
 
 # Run the application with Hypercorn
-CMD ["poetry", "run", "hypercorn", "--bind", "0.0.0.0:5001", "mcp_server.server:app"] 
+CMD ["poetry", "run", "hypercorn", "--bind", "0.0.0.0:5002", "mcp_server.server:app"] 

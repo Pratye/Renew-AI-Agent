@@ -19,6 +19,11 @@ class MCPServer:
         self.server_url = server_url or os.getenv("MCP_SERVER_URL")
         if not self.server_url:
             raise ValueError("MCP server URL is required")
+            
+        # Fix server URL if it's pointing to mcp-server:5001
+        if "mcp-server:5001" in self.server_url:
+            self.server_url = "http://localhost:5002"
+            logging.info(f"Updated server URL from mcp-server:5001 to {self.server_url}")
         
         # API key handling
         self.api_key = api_key or os.getenv("MCP_API_KEY")
@@ -46,6 +51,11 @@ class MCPServer:
             str: The API key
         """
         try:
+            # Check if we're trying to connect to mcp-server:5001 and fix it
+            if "mcp-server:5001" in self.server_url:
+                self.server_url = "http://localhost:5002"
+                logging.info(f"Updated server URL to {self.server_url}")
+                
             # Get client credentials from environment
             client_id = os.getenv("MCP_CLIENT_ID")
             client_secret = os.getenv("MCP_CLIENT_SECRET")
@@ -433,36 +443,13 @@ class MCPServer:
         # If in mock mode, generate a static HTML dashboard
         if self.use_mock_mode:
             logging.info(f"Creating static HTML dashboard for: {title}")
-            dashboard_id = str(uuid.uuid4())
-            
-            # Generate the dashboard HTML
-            dashboard_html = self._generate_static_dashboard_html(
-                dashboard_id=dashboard_id,
-                title=title,
-                description=description,
-                data=data,
-                layout=layout
-            )
-            
-            # Save the dashboard HTML to a file
-            dashboard_dir = os.path.join(os.getcwd(), 'static', 'dashboards')
-            os.makedirs(dashboard_dir, exist_ok=True)
-            
-            dashboard_file = os.path.join(dashboard_dir, f"{dashboard_id}.html")
-            with open(dashboard_file, 'w') as f:
-                f.write(dashboard_html)
-            
-            # Return the dashboard information with a URL that points to the static file
-            return {
-                "dashboard_id": dashboard_id,
-                "url": f"/static/dashboards/{dashboard_id}.html",
-                "embed_code": f'<iframe src="/static/dashboards/{dashboard_id}.html" width="100%" height="600px" frameborder="0"></iframe>',
-                "note": "This is a static dashboard created in mock mode."
-            }
+            return self._create_static_dashboard(title, description, data, layout)
             
         try:
             if not self.server_url or not self.api_key:
-                raise ValueError("MCP server not properly configured")
+                logging.warning("MCP server not properly configured, falling back to mock mode")
+                self.use_mock_mode = True
+                return self._create_static_dashboard(title, description, data, layout)
             
             # Ensure we have data to work with
             if not data or not isinstance(data, dict) or not data.get('data'):
@@ -489,7 +476,7 @@ class MCPServer:
                     urljoin(self.server_url, "api/dashboards/create"),
                     headers=self.headers,
                     json=dashboard_config,
-                    timeout=30  # Add timeout to prevent hanging
+                    timeout=10  # Shorter timeout to prevent hanging
                 )
                 
                 response.raise_for_status()
@@ -506,14 +493,55 @@ class MCPServer:
             except requests.exceptions.RequestException as e:
                 logging.error(f"Error communicating with MCP server: {str(e)}")
                 # Fall back to static HTML dashboard
-                return self.create_dashboard(title, description, data, layout, auto_refresh, refresh_interval)
+                self.use_mock_mode = True
+                return self._create_static_dashboard(title, description, data, layout)
         
         except Exception as e:
             logging.error(f"Error creating dashboard: {str(e)}")
             # Fall back to static HTML dashboard
             self.use_mock_mode = True
-            return self.create_dashboard(title, description, data, layout, auto_refresh, refresh_interval)
+            return self._create_static_dashboard(title, description, data, layout)
             
+    def _create_static_dashboard(self, title, description, data, layout=None):
+        """
+        Create a static HTML dashboard.
+        
+        Args:
+            title (str): Dashboard title
+            description (str): Dashboard description
+            data (dict): Dashboard data
+            layout (dict, optional): Dashboard layout. Defaults to None.
+            
+        Returns:
+            dict: Dashboard information
+        """
+        dashboard_id = str(uuid.uuid4())
+        
+        # Generate the dashboard HTML
+        dashboard_html = self._generate_static_dashboard_html(
+            dashboard_id=dashboard_id,
+            title=title,
+            description=description,
+            data=data,
+            layout=layout
+        )
+        
+        # Save the dashboard HTML to a file
+        dashboard_dir = os.path.join(os.getcwd(), 'static', 'dashboards')
+        os.makedirs(dashboard_dir, exist_ok=True)
+        
+        dashboard_file = os.path.join(dashboard_dir, f"{dashboard_id}.html")
+        with open(dashboard_file, 'w') as f:
+            f.write(dashboard_html)
+        
+        # Return the dashboard information with a URL that points to the static file
+        return {
+            "dashboard_id": dashboard_id,
+            "url": f"/static/dashboards/{dashboard_id}.html",
+            "embed_code": f'<iframe src="/static/dashboards/{dashboard_id}.html" width="100%" height="600px" frameborder="0"></iframe>',
+            "note": "This is a static dashboard created in mock mode."
+        }
+    
     def _generate_static_dashboard_html(self, dashboard_id, title, description, data, layout=None):
         """
         Generate a static HTML dashboard.
@@ -967,22 +995,31 @@ class MCPServer:
             bool: True if the server is healthy, False otherwise
         """
         try:
+            # Check if we're trying to connect to mcp-server:5001 and fix it
+            if "mcp-server:5001" in self.server_url:
+                self.server_url = "http://localhost:5002"
+                logging.info(f"Updated server URL to {self.server_url}")
+                
             # Try to connect to the health endpoint
-            response = requests.get(
-                urljoin(self.server_url, "api/health"),
-                headers=self.headers,
-                timeout=5  # Short timeout for health check
-            )
-            
-            # Check if the response is successful
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("status") == "ok":
-                    return True
-            
-            # If we get here, the health check failed
-            logging.warning(f"MCP server health check failed with status code {response.status_code}")
-            return False
+            try:
+                response = requests.get(
+                    urljoin(self.server_url, "api/health"),
+                    headers=self.headers,
+                    timeout=3  # Short timeout for health check
+                )
+                
+                # Check if the response is successful
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("status") == "ok":
+                        return True
+                
+                # If we get here, the health check failed
+                logging.warning(f"MCP server health check failed with status code {response.status_code}")
+                return False
+            except requests.exceptions.RequestException as e:
+                logging.warning(f"MCP server health check failed with connection error: {str(e)}")
+                return False
             
         except Exception as e:
             logging.warning(f"MCP server health check failed: {str(e)}")

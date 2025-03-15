@@ -31,7 +31,7 @@ class VectorStore:
         self.logger = logging.getLogger(__name__)
         
         # Initialize SQLite database
-        db_path = "/app/data/vector_store/metadata.db"
+        db_path = os.path.join(os.getcwd(), "data", "vector_store", "metadata.db")
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self.engine = create_engine(f"sqlite:///{db_path}")
         Base.metadata.create_all(self.engine)
@@ -40,9 +40,9 @@ class VectorStore:
         # Initialize FAISS indices
         self.indices = {}
         self.index_paths = {
-            "eia": "/app/data/vector_store/eia.index",
-            "solar": "/app/data/vector_store/solar.index",
-            "wind": "/app/data/vector_store/wind.index"
+            "eia": os.path.join(os.getcwd(), "data", "vector_store", "eia.index"),
+            "solar": os.path.join(os.getcwd(), "data", "vector_store", "solar.index"),
+            "wind": os.path.join(os.getcwd(), "data", "vector_store", "wind.index")
         }
         
         # Load or create FAISS indices
